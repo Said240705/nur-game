@@ -16,6 +16,7 @@ var _title: Label
 var _subtitle: Label
 var _tapped := false
 var _rotate: Label
+var _hint: Label
 var _blink := 0.0
 
 
@@ -41,6 +42,13 @@ func _ready() -> void:
 	_footer.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_footer.offset_bottom = -170.0
 	_footer.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+
+	_hint = _label(30, 0.0)
+	_hint.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_hint.offset_top = 70.0
+	_hint.add_theme_color_override("font_color", Color(1.0, 0.9, 0.78))
+	_hint.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_hint.add_theme_constant_override("shadow_offset_y", 2)
 
 	_rotate = _label(72, 0.0)
 	_rotate.offset_left = 40.0
@@ -203,9 +211,8 @@ func hide_title(duration := 1.0) -> void:
 	await tw.finished
 
 
-## A small hint near the bottom that fades out by itself.
+## A small hint near the top that fades out by itself.
 func hint(text: String, seconds := 4.0) -> void:
-	_footer.remove_meta("blink")
-	await show_label(_footer, text, 0.8)
+	await show_label(_hint, text, 0.8)
 	await wait(seconds)
-	await hide_label(_footer, 1.0)
+	await hide_label(_hint, 1.0)

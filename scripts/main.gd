@@ -1,37 +1,36 @@
 extends Node
-## The director: intro -> title -> the valley -> memories -> end of the prologue.
-## Owns every pause and every camera move, so gameplay code never knows about cutscenes.
+## The director of chapter one: intro, title, then the story beats in the village.
+## Owns every pause, so the village and its actors never know about cutscenes.
 
 const Texts := preload("res://scripts/texts.gd")
-const World := preload("res://scripts/world/world.gd")
-const Game := preload("res://scripts/game/game.gd")
+const Village := preload("res://scripts/village/village.gd")
 const Hud := preload("res://scripts/ui/hud.gd")
 const Cinema := preload("res://scripts/ui/cinema.gd")
-const UpgradePanel := preload("res://scripts/ui/upgrade_panel.gd")
+const Dialogue := preload("res://scripts/ui/dialogue.gd")
 
-## Where the camera looks when it frames the White Peak above the village.
-const PEAK_LOOK := Vector3(160, 140, -640)
+enum Beat { INTRO, FIND_ELI, SILENCE, FREED }
 
-var world: Node3D
-var game: Node3D
+var village: Node2D
 var hud: CanvasLayer
 var cinema: CanvasLayer
-var upgrades: CanvasLayer
-var memories := 0
+var dialogue: CanvasLayer
+var beat := Beat.INTRO
 
-var _first_run := true
+var _busy := true
+var _talked := {}
+var _has_toy := false
+var _asked_for_toy := false
 
 
 func _ready() -> void:
-	world = World.new()
-	add_child(world)
-
+	village = Village.new()
+	add_child(village)
 	hud = Hud.new()
 	hud.visible = false
+	hud.talk_pressed.connect(_on_talk)
 	add_child(hud)
-	upgrades = UpgradePanel.new()
-	upgrades.chosen.connect(_on_upgrade_chosen)
-	add_child(upgrades)
+	dialogue = Dialogue.new()
+	add_child(dialogue)
 	cinema = Cinema.new()
 	add_child(cinema)
 
@@ -45,106 +44,135 @@ func _ready() -> void:
 
 
 func _intro() -> void:
+	get_tree().paused = true
 	cinema.set_black(1.0)
-	world.shot(Vector3(0, 40, 90), Vector3(0, 0, 0))
 	await cinema.wait(1.2)
 	for line in Texts.INTRO_LINES:
 		await cinema.caption(line, 2.4)
-	await cinema.wait(0.4)
-	# A slow crane down over the sleeping village, ending under the White Peak.
-	world.dolly(Vector3(0, 42, 95), Vector3(-2, 3.4, 31), Vector3(0, 0, 0), PEAK_LOOK, 16.0)
-	await cinema.fade_to(0.25, 3.0)
-	await cinema.caption(Texts.ELI_LEAD, 2.6, 38)
-	await cinema.caption(Texts.ELI_LINE, 3.0, 58)
-	await title(false)
-
-
-func title(reframe := true) -> void:
-	hud.visible = false
-	if reframe:
-		world.dolly(Vector3(2, 3.6, 36), Vector3(-2, 3.4, 31), PEAK_LOOK + Vector3(-60, 0, 0), PEAK_LOOK, 12.0)
-	cinema.fade_to(0.0, 2.0)
+	await cinema.letterbox(true, 0.1)
+	cinema.fade_to(0.15, 3.0)
 	Sfx.play("bell", -4.0)
 	await cinema.show_title(Texts.TITLE, Texts.SUBTITLE)
 	await cinema.prompt_and_wait(Texts.TAP_TO_START)
-	cinema.hide_title(1.2)
-	start_game(2.8)
-	if _first_run:
-		_first_run = false
-		await cinema.wait(2.0)
-		await cinema.hint(Texts.HINT_MOVE, 3.5)
-		await cinema.hint(Texts.HINT_LIGHT, 3.5)
+	await cinema.hide_title(1.2)
+	await cinema.fade_to(0.6, 0.8)
+	await cinema.caption("%s\n%s" % [Texts.CHAPTER, Texts.CHAPTER_NAME], 2.6, 50)
+	cinema.fade_to(0.0, 1.5)
+	await cinema.letterbox(false, 1.5)
+	await talk(Texts.OPENING)
+	beat = Beat.FIND_ELI
+	_resume()
+	await cinema.hint(Texts.HINT_MOVE, 3.5)
+	await cinema.hint(Texts.HINT_GOAL, 4.0)
 
 
-func start_game(camera_blend := 0.0) -> void:
-	if game:
-		game.queue_free()
-	memories = 0
-	game = Game.new()
-	game.world = world
-	game.joystick = hud
-	game.level_up.connect(_on_level_up)
-	game.light_out.connect(_on_light_out)
-	game.stats_changed.connect(hud.update_stats)
-	world.add_child(game)
-	world.follow(game.nur, camera_blend)
-	hud.set_memories(0)
-	hud.reset_touch()
-	hud.visible = true
-	get_tree().paused = false
-
-
-func _on_level_up(level: int) -> void:
+## Run a conversation with the world paused.
+func talk(lines: Array) -> void:
+	_busy = true
 	get_tree().paused = true
+	hud.show_talk(false)
 	hud.reset_touch()
-	var index := Texts.MEMORY_LEVELS.find(level)
-	if index >= 0:
-		await _memory(index)
-		if index == Texts.MEMORIES.size() - 1:
-			await _prologue_end()
-			return
-	upgrades.open(game.roll_upgrades(3))
+	await dialogue.play(lines)
 
 
-func _memory(index: int) -> void:
-	Sfx.play("bell", -8.0, 1.5)
+func _resume() -> void:
+	hud.visible = true
+	hud.reset_touch()
+	get_tree().paused = false
+	_busy = false
+
+
+func _process(_delta: float) -> void:
+	if _busy:
+		return
+	var who: String = village.nearby_person()
+	hud.show_talk(who != "" and not (who == "eli" and beat == Beat.FIND_ELI))
+	var nur_at: Vector2 = village.nur.position
+
+	match beat:
+		Beat.FIND_ELI:
+			if who == "eli":
+				_eli_scene()
+		Beat.SILENCE:
+			if not _has_toy and nur_at.distance_to(village.keepsake.position) < 34.0:
+				_find_toy()
+			elif village.faceless and nur_at.distance_to(village.faceless.position) < 75.0:
+				if _has_toy:
+					_free_arsen()
+				elif not _asked_for_toy:
+					_asked_for_toy = true
+					_say(Texts.NEED_TOY)
+
+
+func _on_talk() -> void:
+	if _busy:
+		return
+	var who: String = village.nearby_person()
+	village.nur.face(village.PEOPLE.get(who, village.nur.position))
+	match who:
+		"zara":
+			_say(Texts.ZARA_TALK)
+		"traveler":
+			_say(Texts.TRAVELER_TALK)
+		"mother":
+			_say(Texts.MOTHER_TALK)
+		"eli":
+			_say([[Texts.ELI, "Тётя, мне нельзя говорить с чужими.", ""]])
+
+
+func _say(lines: Array) -> void:
+	await talk(lines)
+	_resume()
+
+
+func _eli_scene() -> void:
+	_busy = true
+	village.nur.face(village.PEOPLE["eli"])
 	hud.visible = false
+	await cinema.letterbox(true, 0.8)
+	await talk(Texts.ELI_SCENE)
+	Sfx.wind_level = 1.0
+	await village.set_silence(1.0, 4.0)
+	village.summon_faceless()
+	await talk(Texts.SILENCE_COMES)
+	await cinema.letterbox(false, 0.8)
+	beat = Beat.SILENCE
+	_resume()
+	cinema.hint(Texts.HINT_FACELESS, 4.5)
+
+
+func _find_toy() -> void:
+	_has_toy = true
+	village.keepsake.taken = true
+	Sfx.play("shard", -6.0)
+	await talk(Texts.FOUND_TOY)
+	_resume()
+
+
+func _free_arsen() -> void:
+	_busy = true
+	beat = Beat.FREED
+	village.nur.face(village.faceless.position)
+	hud.visible = false
+	get_tree().paused = true
+	Sfx.play("bell", -8.0, 1.5)
 	cinema.fade_to(0.55, 0.9)
 	await cinema.letterbox(true)
-	await cinema.card("%s · %s" % [Texts.MEMORY_HEADER, Texts.ROMAN[index]], Texts.MEMORIES[index], Texts.TAP_TO_CONTINUE)
-	memories = index + 1
-	hud.set_memories(memories)
-	cinema.fade_to(0.0, 0.6)
-	await cinema.letterbox(false, 0.6)
-	hud.visible = true
-
-
-func _on_upgrade_chosen(id: String) -> void:
-	game.apply_upgrade(id)
-	hud.reset_touch()
-	get_tree().paused = false
-
-
-func _on_light_out() -> void:
-	hud.visible = false
-	await cinema.wait(2.0)
-	await cinema.fade_to(0.7, 1.5)
-	await cinema.card("", Texts.LIGHT_OUT, Texts.LIGHT_OUT_SUB)
-	await cinema.fade_to(1.0, 0.8)
-	start_game()
-	await cinema.fade_to(0.0, 1.2)
-
-
-func _prologue_end() -> void:
-	hud.visible = false
+	await cinema.card(Texts.MEMORY_HEADER, Texts.ARSEN_MEMORY, Texts.TAP_TO_CONTINUE)
+	cinema.fade_to(0.0, 0.8)
+	var tw := create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tw.tween_property(village.faceless, "remembered", 1.0, 2.0)
+	await tw.finished
+	await dialogue.play(Texts.ARSEN_FREED.slice(0, 2))
+	tw = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tw.tween_property(village.faceless, "faded", 1.0, 2.5)
+	tw.parallel().tween_property(village.faceless, "position:y", village.faceless.position.y - 40.0, 2.5)
+	Sfx.play("fade", -8.0, 0.8)
+	await tw.finished
+	Sfx.wind_level = 0.6
+	village.set_silence(0.35, 3.0)
+	await dialogue.play(Texts.ARSEN_FREED.slice(2))
 	await cinema.fade_to(1.0, 2.5)
-	game.queue_free()
-	game = null
-	await cinema.letterbox(false, 0.1)
-	for line in Texts.ENDING:
-		await cinema.caption(line, 3.0, 40)
 	Sfx.play("bell", -6.0, 0.9)
-	await cinema.caption(Texts.PROLOGUE_END, 2.5, 56)
+	await cinema.caption(Texts.DEMO_END, 2.5, 52)
 	await cinema.caption(Texts.TO_BE_CONTINUED, 2.5, 34)
-	get_tree().paused = false
-	await title()
