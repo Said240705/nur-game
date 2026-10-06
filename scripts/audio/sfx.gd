@@ -1,26 +1,33 @@
 extends Node
-## Procedural sound: an endless wind bed plus a few synthesized one-shots.
+## Procedural sound: an endless rain bed plus synthesized phone and door sounds.
 ## Nothing here needs audio files, so the prototype ships without assets.
 
 const RATE := 22050
 
-## 0..1, how loud the wind is. The director raises it during the Silence.
-var wind_level := 0.6
+## 0..1, how loud the rain is. Indoors it is muffled, outside it pours.
+var rain_level := 0.5
+## 0..1, how much the rain is muffled (0 = outside, 1 = behind a closed window).
+var rain_muffle := 0.6
 
 var _streams := {}
 var _players: Array[AudioStreamPlayer] = []
-var _wind_playback: AudioStreamGeneratorPlayback
-var _wind_lp := 0.0
-var _wind_lp2 := 0.0
-var _wind_time := 0.0
+var _rain_playback: AudioStreamGeneratorPlayback
+var _lp := 0.0
+var _lp2 := 0.0
+var _drops := 0.0
+var _time := 0.0
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	_streams["bell"] = _wav(_bell(523.25, 4.5, 0.55))
-	_streams["pulse"] = _wav(_pulse())
-	_streams["shard"] = _wav(_bell(1318.5, 0.9, 0.22))
-	_streams["fade"] = _wav(_whoosh(0.7))
+	_streams["bell"] = _wav(_bell(523.25, 4.5, 0.5))
+	_streams["ping"] = _wav(_tones([[1318.5, 0.0], [1760.0, 0.09]], 0.5, 0.25))
+	_streams["doorbell"] = _wav(_tones([[659.25, 0.0], [523.25, 0.55]], 1.8, 0.45))
+	_streams["buzz"] = _wav(_buzz())
+	_streams["click"] = _wav(_click())
+	_streams["error"] = _wav(_tones([[220.0, 0.0], [196.0, 0.12]], 0.4, 0.3))
+	_streams["unlock"] = _wav(_tones([[880.0, 0.0], [1174.7, 0.08], [1568.0, 0.16]], 0.8, 0.22))
+	_streams["whoosh"] = _wav(_whoosh(0.9))
 	for i in 10:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
@@ -29,12 +36,12 @@ func _ready() -> void:
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = RATE
 	gen.buffer_length = 0.3
-	var wind := AudioStreamPlayer.new()
-	wind.stream = gen
-	wind.volume_db = -4.0
-	add_child(wind)
-	wind.play()
-	_wind_playback = wind.get_stream_playback()
+	var rain := AudioStreamPlayer.new()
+	rain.stream = gen
+	rain.volume_db = -6.0
+	add_child(rain)
+	rain.play()
+	_rain_playback = rain.get_stream_playback()
 
 
 func play(sound: String, volume_db := 0.0, pitch := 1.0) -> void:
@@ -51,23 +58,28 @@ func play(sound: String, volume_db := 0.0, pitch := 1.0) -> void:
 
 
 func _process(_delta: float) -> void:
-	if _wind_playback == null:
+	if _rain_playback == null:
 		return
-	var frames := _wind_playback.get_frames_available()
+	var frames := _rain_playback.get_frames_available()
 	if frames <= 0:
 		return
 	var buf := PackedVector2Array()
 	buf.resize(frames)
+	var cutoff := lerpf(0.55, 0.08, rain_muffle)
 	for i in frames:
-		_wind_time += 1.0 / RATE
-		# Two slow, unrelated waves make irregular gusts.
-		var gust := 0.55 + 0.45 * sin(_wind_time * 0.37) * sin(_wind_time * 0.113 + 1.3)
-		var cutoff := 0.015 + 0.05 * gust
-		_wind_lp += (randf() * 2.0 - 1.0 - _wind_lp) * cutoff
-		_wind_lp2 += (_wind_lp - _wind_lp2) * cutoff
-		var s := _wind_lp2 * (0.5 + gust) * wind_level * 4.0
-		buf[i] = Vector2(s, s)
-	_wind_playback.push_buffer(buf)
+		_time += 1.0 / RATE
+		# Steady hiss from countless drops...
+		_lp += (randf() * 2.0 - 1.0 - _lp) * cutoff
+		_lp2 += (_lp - _lp2) * cutoff
+		# ...plus the odd heavy drop tapping on glass or a sill.
+		if randf() < 0.0009:
+			_drops = randf_range(0.3, 0.8)
+		_drops *= 0.985
+		var tap := (randf() * 2.0 - 1.0) * _drops * (1.0 - rain_muffle * 0.6)
+		var swell := 0.85 + 0.15 * sin(_time * 0.21)
+		var s := (_lp2 * 2.2 + tap * 0.35) * rain_level * swell
+		buf[i] = Vector2(s, s * 0.96)
+	_rain_playback.push_buffer(buf)
 
 
 func _wav(samples: PackedFloat32Array) -> AudioStreamWAV:
@@ -85,7 +97,7 @@ func _wav(samples: PackedFloat32Array) -> AudioStreamWAV:
 
 ## Inharmonic partials with independent decays read as a small metal bell.
 func _bell(base: float, length: float, gain: float) -> PackedFloat32Array:
-	var partials := [[0.5, 0.35, 1.0], [1.0, 1.0, 0.8], [1.19, 0.5, 0.6], [1.56, 0.4, 0.45], [2.0, 0.3, 0.35], [2.74, 0.25, 0.25], [3.76, 0.12, 0.18]]
+	var partials := [[0.5, 0.35, 1.0], [1.0, 1.0, 0.8], [1.19, 0.5, 0.6], [1.56, 0.4, 0.45], [2.0, 0.3, 0.35], [2.74, 0.25, 0.25]]
 	var n := int(length * RATE)
 	var out := PackedFloat32Array()
 	out.resize(n)
@@ -94,27 +106,51 @@ func _bell(base: float, length: float, gain: float) -> PackedFloat32Array:
 		var s := 0.0
 		for p in partials:
 			s += sin(TAU * base * p[0] * t) * p[1] * exp(-t * 3.0 / (length * p[2]))
-		var attack := minf(1.0, t * 400.0)
-		out[i] = s * gain * 0.4 * attack
+		out[i] = s * gain * 0.4 * minf(1.0, t * 400.0)
 	return out
 
 
-## Soft low swell for Nur's light pulse.
-func _pulse() -> PackedFloat32Array:
-	var n := int(0.55 * RATE)
+## Soft sine notes [frequency, start] each fading out: phone pings, the door chime.
+func _tones(notes: Array, length: float, gain: float) -> PackedFloat32Array:
+	var n := int(length * RATE)
 	var out := PackedFloat32Array()
 	out.resize(n)
-	var lp := 0.0
 	for i in n:
 		var t := float(i) / RATE
-		var env := sin(PI * minf(1.0, t / 0.55)) * exp(-t * 3.0)
-		var freq := 196.0 - t * 60.0
-		lp += (randf() * 2.0 - 1.0 - lp) * 0.08
-		out[i] = (sin(TAU * freq * t) * 0.7 + sin(TAU * freq * 1.5 * t) * 0.2 + lp * 0.5) * env * 0.6
+		var s := 0.0
+		for note in notes:
+			var lt: float = t - note[1]
+			if lt >= 0.0:
+				var env := minf(1.0, lt * 300.0) * exp(-lt * 4.0)
+				s += (sin(TAU * note[0] * lt) + 0.25 * sin(TAU * note[0] * 2.0 * lt)) * env
+		out[i] = s * gain
 	return out
 
 
-## Breath of noise rising in pitch: a Faceless dissolving.
+## Two short rattling pulses of a phone vibrating on a wooden desk.
+func _buzz() -> PackedFloat32Array:
+	var n := int(0.9 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var t := float(i) / RATE
+		var on := 1.0 if fmod(t, 0.45) < 0.32 else 0.0
+		var rattle := sin(TAU * 165.0 * t) * 0.7 + sin(TAU * 330.0 * t) * 0.2 + (randf() - 0.5) * 0.25
+		out[i] = rattle * on * 0.5
+	return out
+
+
+func _click() -> PackedFloat32Array:
+	var n := int(0.04 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in n:
+		var t := float(i) / RATE
+		out[i] = (randf() * 2.0 - 1.0) * exp(-t * 180.0) * 0.5
+	return out
+
+
+## Breath of noise rising in pitch, for cuts and transitions.
 func _whoosh(length: float) -> PackedFloat32Array:
 	var n := int(length * RATE)
 	var out := PackedFloat32Array()

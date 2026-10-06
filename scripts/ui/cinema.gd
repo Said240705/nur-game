@@ -4,7 +4,6 @@ extends CanvasLayer
 
 const TEXT := Color(0.93, 0.94, 0.96)
 const BAR := 140.0
-const ROTATE_HINT := "Поверни телефон горизонтально"
 
 var _fade: ColorRect
 var _top: ColorRect
@@ -15,7 +14,6 @@ var _footer: Label
 var _title: Label
 var _subtitle: Label
 var _tapped := false
-var _rotate: Label
 var _hint: Label
 var _blink := 0.0
 
@@ -32,7 +30,7 @@ func _ready() -> void:
 	_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_fade)
 
-	_title = _label(150, 0.0)
+	_title = _label(104, 0.0)
 	_subtitle = _label(34, 150.0)
 	_subtitle.add_theme_color_override("font_color", Color(1.0, 0.8, 0.6))
 	_header = _label(26, -190.0)
@@ -50,16 +48,6 @@ func _ready() -> void:
 	_hint.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
 	_hint.add_theme_constant_override("shadow_offset_y", 2)
 
-	_rotate = _label(72, 0.0)
-	_rotate.offset_left = 40.0
-	_rotate.offset_right = -40.0
-	_rotate.text = ROTATE_HINT
-	var back := ColorRect.new()
-	back.set_anchors_preset(Control.PRESET_FULL_RECT)
-	back.color = Color.BLACK
-	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	back.show_behind_parent = true
-	_rotate.add_child(back)
 
 
 func _bar(preset: Control.LayoutPreset) -> ColorRect:
@@ -78,8 +66,8 @@ func _bar(preset: Control.LayoutPreset) -> ColorRect:
 func _label(font_size: int, shift_y: float) -> Label:
 	var l := Label.new()
 	l.set_anchors_preset(Control.PRESET_FULL_RECT)
-	l.offset_left = 160.0
-	l.offset_right = -160.0
+	l.offset_left = 80.0
+	l.offset_right = -80.0
 	l.offset_top = shift_y
 	l.offset_bottom = shift_y
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -102,8 +90,6 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
-	var view := get_viewport().get_visible_rect().size
-	_rotate.modulate.a = 1.0 if view.y > view.x else 0.0
 	if _footer.modulate.a > 0.0 and _footer.has_meta("blink"):
 		_blink += delta
 		_footer.modulate.a = 0.45 + 0.4 * sin(_blink * 2.5)

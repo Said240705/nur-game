@@ -1,36 +1,47 @@
 extends Node
-## The director of chapter one: intro, title, then the story beats in the village.
-## Owns every pause, so the village and its actors never know about cutscenes.
+## The director of the prologue: cold open, the rainy city, Lev's own phone as
+## the tutorial, the doorbell, the parcel, and Mira's locked phone.
 
 const Texts := preload("res://scripts/texts.gd")
-const Village := preload("res://scripts/village/village.gd")
-const Hud := preload("res://scripts/ui/hud.gd")
+const Phone := preload("res://scripts/phone/phone.gd")
+const LevPhone := preload("res://scripts/story/leo_phone.gd")
+const MiraPhone := preload("res://scripts/story/mira_phone.gd")
 const Cinema := preload("res://scripts/ui/cinema.gd")
-const Dialogue := preload("res://scripts/ui/dialogue.gd")
+const Panels := preload("res://scripts/ui/panels.gd")
+const Overlay := preload("res://scripts/ui/overlay.gd")
+const CITY := preload("res://assets/art/lev/city_night.jpg")
+const FACE := preload("res://assets/art/lev/face_tired.jpg")
 
-enum Beat { INTRO, FIND_ELI, SILENCE, FREED }
+enum Stage { INTRO, LEV_PHONE, PARCEL, MIRA_LOCKED, CHAPTER_ONE }
 
-var village: Node2D
-var hud: CanvasLayer
+var stage := Stage.INTRO
+var lev_phone: Control
+var mira_phone: Control
 var cinema: CanvasLayer
-var dialogue: CanvasLayer
-var beat := Beat.INTRO
+var panels: CanvasLayer
+var overlay: CanvasLayer
 
-var _busy := true
-var _talked := {}
-var _has_toy := false
-var _asked_for_toy := false
+var _phones: CanvasLayer
+var _seen := {}
+var _showing_mira := false
+var _wrong_codes := 0
 
 
 func _ready() -> void:
-	village = Village.new()
-	add_child(village)
-	hud = Hud.new()
-	hud.visible = false
-	hud.talk_pressed.connect(_on_talk)
-	add_child(hud)
-	dialogue = Dialogue.new()
-	add_child(dialogue)
+	_phones = CanvasLayer.new()
+	add_child(_phones)
+	lev_phone = Phone.new()
+	lev_phone.setup(LevPhone)
+	lev_phone.viewed.connect(_on_viewed)
+	lev_phone.visible = false
+	_phones.add_child(lev_phone)
+
+	overlay = Overlay.new()
+	overlay.door_opened.connect(_on_door)
+	overlay.switch_pressed.connect(_switch_phone)
+	add_child(overlay)
+	panels = Panels.new()
+	add_child(panels)
 	cinema = Cinema.new()
 	add_child(cinema)
 
@@ -44,135 +55,142 @@ func _ready() -> void:
 
 
 func _intro() -> void:
-	get_tree().paused = true
 	cinema.set_black(1.0)
+	Sfx.rain_level = 0.0
+	await cinema.wait(0.8)
+	await _cold_open()
+	await _title()
+	await _city()
+	_start_lev_phone()
+
+
+## A glimpse of the end: a dying phone, a whisper, then back in time.
+func _cold_open() -> void:
+	var screen := Control.new()
+	screen.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cinema.add_child(screen)
+	var t := {"a": 0.0}
+	screen.draw.connect(func() -> void:
+		var c := Vector2(540, 700)
+		var a: float = t["a"]
+		screen.draw_rect(Rect2(c - Vector2(150, 70), Vector2(270, 140)), Color(0.9, 0.2, 0.2, a), false, 8.0)
+		screen.draw_rect(Rect2(c + Vector2(126, -26), Vector2(18, 52)), Color(0.9, 0.2, 0.2, a))
+		screen.draw_rect(Rect2(c - Vector2(134, 54), Vector2(14, 108)), Color(0.9, 0.2, 0.2, a))
+		var f := screen.get_theme_default_font()
+		screen.draw_string(f, c + Vector2(-60, 160), "2%", HORIZONTAL_ALIGNMENT_LEFT, -1, 80, Color(0.9, 0.2, 0.2, a)))
+	Sfx.rain_level = 0.9
+	Sfx.rain_muffle = 0.0
+	var tw := create_tween()
+	tw.tween_method(func(v: float) -> void:
+		t["a"] = v
+		screen.queue_redraw(), 0.0, 1.0, 1.5)
+	await tw.finished
+	Sfx.play("buzz", -10.0)
+	await cinema.caption(Texts.COLD_OPEN_WHISPER, 2.2, 46)
+	tw = create_tween()
+	tw.tween_method(func(v: float) -> void:
+		t["a"] = v
+		screen.queue_redraw(), 1.0, 0.0, 0.15)
+	await tw.finished
+	screen.queue_free()
+	Sfx.rain_level = 0.0
+	Sfx.play("whoosh", -6.0, 0.7)
 	await cinema.wait(1.2)
-	for line in Texts.INTRO_LINES:
-		await cinema.caption(line, 2.4)
-	await cinema.letterbox(true, 0.1)
-	cinema.fade_to(0.15, 3.0)
-	Sfx.play("bell", -4.0)
+	await cinema.caption(Texts.HOURS_BEFORE, 2.0, 56)
+
+
+func _title() -> void:
+	Sfx.rain_level = 0.6
+	Sfx.rain_muffle = 0.2
+	panels.shot(CITY, Vector2(0.95, 0.4), Vector2(0.75, 0.4), 14.0, 1.15, 1.25)
+	await cinema.fade_to(0.35, 2.5)
+	Sfx.play("bell", -10.0, 0.7)
 	await cinema.show_title(Texts.TITLE, Texts.SUBTITLE)
 	await cinema.prompt_and_wait(Texts.TAP_TO_START)
-	await cinema.hide_title(1.2)
-	await cinema.fade_to(0.6, 0.8)
-	await cinema.caption("%s\n%s" % [Texts.CHAPTER, Texts.CHAPTER_NAME], 2.6, 50)
-	cinema.fade_to(0.0, 1.5)
-	await cinema.letterbox(false, 1.5)
-	await talk(Texts.OPENING)
-	beat = Beat.FIND_ELI
-	_resume()
-	await cinema.hint(Texts.HINT_MOVE, 3.5)
-	await cinema.hint(Texts.HINT_GOAL, 4.0)
+	await cinema.hide_title(1.0)
+	await cinema.fade_to(0.0, 1.0)
 
 
-## Run a conversation with the world paused.
-func talk(lines: Array) -> void:
-	_busy = true
-	get_tree().paused = true
-	hud.show_talk(false)
-	hud.reset_touch()
-	await dialogue.play(lines)
+func _city() -> void:
+	panels.shot(CITY, Vector2(0.75, 0.42), Vector2(0.3, 0.45), 16.0, 1.25, 1.35)
+	for line in Texts.CITY_VOICE:
+		await panels.say(line, 2.6)
+	await cinema.fade_to(1.0, 0.8)
+	panels.shot(FACE, Vector2(0.5, 0.35), Vector2(0.5, 0.45), 14.0, 1.0, 1.12)
+	Sfx.rain_muffle = 0.7
+	await cinema.fade_to(0.0, 1.0)
+	for line in Texts.FACE_VOICE:
+		await panels.say(line, 3.0)
+	await cinema.fade_to(1.0, 1.0)
+	await panels.hide_frames(0.1)
 
 
-func _resume() -> void:
-	hud.visible = true
-	hud.reset_touch()
-	get_tree().paused = false
-	_busy = false
+func _start_lev_phone() -> void:
+	stage = Stage.LEV_PHONE
+	lev_phone.visible = true
+	Sfx.rain_level = 0.45
+	Sfx.rain_muffle = 0.75
+	Sfx.play("buzz", -6.0)
+	await cinema.fade_to(0.0, 1.2)
+	overlay.set_goal(Texts.GOAL_LOOK)
 
 
-func _process(_delta: float) -> void:
-	if _busy:
-		return
-	var who: String = village.nearby_person()
-	hud.show_talk(who != "" and not (who == "eli" and beat == Beat.FIND_ELI))
-	var nur_at: Vector2 = village.nur.position
-
-	match beat:
-		Beat.FIND_ELI:
-			if who == "eli":
-				_eli_scene()
-		Beat.SILENCE:
-			if not _has_toy and nur_at.distance_to(village.keepsake.position) < 34.0:
-				_find_toy()
-			elif village.faceless and nur_at.distance_to(village.faceless.position) < 75.0:
-				if _has_toy:
-					_free_arsen()
-				elif not _asked_for_toy:
-					_asked_for_toy = true
-					_say(Texts.NEED_TOY)
+func _on_viewed(key: String) -> void:
+	_seen[key] = true
+	if Texts.THOUGHTS.has(key):
+		overlay.think(Texts.THOUGHTS[key])
+	if stage == Stage.LEV_PHONE and _seen.has("news:mira") and (_seen.has("chat:vera") or _seen.has("note:case_v")):
+		stage = Stage.PARCEL
+		await get_tree().create_timer(5.0).timeout
+		Sfx.play("doorbell", -2.0)
+		overlay.set_goal("")
+		await get_tree().create_timer(0.8).timeout
+		overlay.show_door(Texts.OPEN_DOOR)
+		overlay.think(Texts.DOORBELL, 3.0)
 
 
-func _on_talk() -> void:
-	if _busy:
-		return
-	var who: String = village.nearby_person()
-	village.nur.face(village.PEOPLE.get(who, village.nur.position))
-	match who:
-		"zara":
-			_say(Texts.ZARA_TALK)
-		"traveler":
-			_say(Texts.TRAVELER_TALK)
-		"mother":
-			_say(Texts.MOTHER_TALK)
-		"eli":
-			_say([[Texts.ELI, "Тётя, мне нельзя говорить с чужими.", ""]])
+func _on_door() -> void:
+	await cinema.fade_to(1.0, 0.8)
+	lev_phone.visible = false
+	for line in Texts.HALLWAY_VOICE:
+		await cinema.caption(line, 2.6, 42)
+	await overlay.note(Texts.NOTE_TEXT)
+	await cinema.caption(Texts.AFTER_NOTE, 3.0, 42)
+
+	mira_phone = Phone.new()
+	mira_phone.setup(MiraPhone)
+	mira_phone.viewed.connect(_on_mira_viewed)
+	mira_phone.unlocked.connect(_on_mira_unlocked)
+	_phones.add_child(mira_phone)
+	_showing_mira = true
+	stage = Stage.MIRA_LOCKED
+	Sfx.play("buzz", -8.0)
+	await cinema.fade_to(0.0, 1.2)
+	overlay.set_goal(Texts.GOAL_CODE)
+	overlay.show_switch(Texts.SWITCH_TO_LEV)
 
 
-func _say(lines: Array) -> void:
-	await talk(lines)
-	_resume()
+func _switch_phone() -> void:
+	Sfx.play("whoosh", -14.0, 1.4)
+	_showing_mira = not _showing_mira
+	mira_phone.visible = _showing_mira
+	lev_phone.visible = not _showing_mira
+	overlay.show_switch(Texts.SWITCH_TO_LEV if _showing_mira else Texts.SWITCH_TO_MIRA)
 
 
-func _eli_scene() -> void:
-	_busy = true
-	village.nur.face(village.PEOPLE["eli"])
-	hud.visible = false
-	await cinema.letterbox(true, 0.8)
-	await talk(Texts.ELI_SCENE)
-	Sfx.wind_level = 1.0
-	await village.set_silence(1.0, 4.0)
-	village.summon_faceless()
-	await talk(Texts.SILENCE_COMES)
-	await cinema.letterbox(false, 0.8)
-	beat = Beat.SILENCE
-	_resume()
-	cinema.hint(Texts.HINT_FACELESS, 4.5)
+func _on_mira_viewed(key: String) -> void:
+	if key.begins_with("wrong_code:"):
+		_wrong_codes += 1
+		if _wrong_codes % 2 == 1:
+			overlay.think(Texts.WRONG_CODE, 4.0)
 
 
-func _find_toy() -> void:
-	_has_toy = true
-	village.keepsake.taken = true
-	Sfx.play("shard", -6.0)
-	await talk(Texts.FOUND_TOY)
-	_resume()
-
-
-func _free_arsen() -> void:
-	_busy = true
-	beat = Beat.FREED
-	village.nur.face(village.faceless.position)
-	hud.visible = false
-	get_tree().paused = true
-	Sfx.play("bell", -8.0, 1.5)
-	cinema.fade_to(0.55, 0.9)
-	await cinema.letterbox(true)
-	await cinema.card(Texts.MEMORY_HEADER, Texts.ARSEN_MEMORY, Texts.TAP_TO_CONTINUE)
-	cinema.fade_to(0.0, 0.8)
-	var tw := create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
-	tw.tween_property(village.faceless, "remembered", 1.0, 2.0)
-	await tw.finished
-	await dialogue.play(Texts.ARSEN_FREED.slice(0, 2))
-	tw = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
-	tw.tween_property(village.faceless, "faded", 1.0, 2.5)
-	tw.parallel().tween_property(village.faceless, "position:y", village.faceless.position.y - 40.0, 2.5)
-	Sfx.play("fade", -8.0, 0.8)
-	await tw.finished
-	Sfx.wind_level = 0.6
-	village.set_silence(0.35, 3.0)
-	await dialogue.play(Texts.ARSEN_FREED.slice(2))
-	await cinema.fade_to(1.0, 2.5)
-	Sfx.play("bell", -6.0, 0.9)
-	await cinema.caption(Texts.DEMO_END, 2.5, 52)
-	await cinema.caption(Texts.TO_BE_CONTINUED, 2.5, 34)
+func _on_mira_unlocked() -> void:
+	stage = Stage.CHAPTER_ONE
+	overlay.set_goal("")
+	overlay.show_switch("")
+	await overlay.think(Texts.UNLOCKED_VOICE, 3.5)
+	await cinema.fade_to(1.0, 1.2)
+	Sfx.play("bell", -8.0)
+	await cinema.caption("%s\n%s" % [Texts.CHAPTER, Texts.CHAPTER_NAME], 3.0, 64)
+	await cinema.caption(Texts.TO_BE_CONTINUED, 3.0, 40)
