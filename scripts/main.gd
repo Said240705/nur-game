@@ -14,7 +14,7 @@ const WINDOW := preload("res://assets/art/lev/window.jpg")
 const BOARD := preload("res://assets/art/lev/board.jpg")
 const PARCEL := preload("res://assets/art/lev/parcel.jpg")
 
-enum Stage { INTRO, LEV_PHONE, PARCEL, MIRA_LOCKED, CHAPTER_ONE }
+enum Stage { INTRO, LEV_PHONE, PARCEL, MIRA_LOCKED, CHAPTER_ONE, DEDUCTION, CHAPTER_END }
 
 var stage := Stage.INTRO
 var lev_phone: Control
@@ -25,6 +25,7 @@ var overlay: CanvasLayer
 
 var _phones: CanvasLayer
 var _seen := {}
+var _mira_seen := {}
 var _showing_mira := false
 var _wrong_codes := 0
 
@@ -196,6 +197,7 @@ func _on_door() -> void:
 	await cinema.fade_to(0.0, 1.2)
 	overlay.set_goal(Texts.GOAL_CODE)
 	overlay.show_switch(Texts.SWITCH_TO_LEV)
+	await overlay.think(Texts.MIRA_WALLPAPER, 4.0)
 
 
 func _switch_phone() -> void:
@@ -211,6 +213,16 @@ func _on_mira_viewed(key: String) -> void:
 		_wrong_codes += 1
 		if _wrong_codes % 2 == 1:
 			overlay.think(Texts.WRONG_CODE, 4.0)
+		return
+	_mira_seen[key] = true
+	# In the chapter's last scene only «Н.» speaks.
+	if Texts.MIRA_THOUGHTS.has(key) and stage != Stage.CHAPTER_END:
+		overlay.think(Texts.MIRA_THOUGHTS[key])
+	# Once the three people closest to her have been read, Lev draws a conclusion.
+	if stage == Stage.CHAPTER_ONE and ["chat:timur", "chat:dasha", "chat:mom"].all(func(k: String) -> bool: return _mira_seen.has(k)):
+		stage = Stage.DEDUCTION
+		await get_tree().create_timer(5.0).timeout
+		_deduce()
 
 
 func _on_mira_unlocked() -> void:
@@ -221,4 +233,49 @@ func _on_mira_unlocked() -> void:
 	await cinema.fade_to(1.0, 1.2)
 	Sfx.play("bell", -8.0)
 	await cinema.caption("%s\n%s" % [Texts.CHAPTER, Texts.CHAPTER_NAME], 3.0, 64)
+	await cinema.fade_to(0.0, 1.0)
+	overlay.set_goal(Texts.GOAL_MIRA)
+	overlay.show_switch(Texts.SWITCH_TO_LEV)
+	await get_tree().create_timer(80.0).timeout
+	if stage == Stage.CHAPTER_ONE and not _mira_seen.has("chat:timur"):
+		overlay.think(Texts.NUDGE_MIRA, 5.0)
+
+
+## The first conclusion: who saw Mira last. A wrong answer is argued down by
+## the facts in her phone, and Lev thinks again.
+func _deduce() -> void:
+	await overlay.think(Texts.DEDUCE_READY, 3.0)
+	overlay.show_switch("")
+	while true:
+		var i: int = await overlay.choose(Texts.DEDUCE_HEADER, Texts.DEDUCE_QUESTION, Texts.DEDUCE_OPTIONS)
+		if i == Texts.DEDUCE_RIGHT:
+			Sfx.play("unlock", -8.0)
+			await overlay.think(Texts.DEDUCE_REPLIES[i], 4.5)
+			break
+		Sfx.play("error", -8.0)
+		await overlay.think(Texts.DEDUCE_REPLIES[i], 5.0)
+	for line in Texts.DEDUCE_AFTER:
+		await overlay.think(line, 4.0)
+	_cliffhanger()
+
+
+## «Н.» notices that Mira's phone is online, and the chapter ends on a threat.
+func _cliffhanger() -> void:
+	stage = Stage.CHAPTER_END
+	if not _showing_mira:
+		_switch_phone()
+	overlay.show_switch("")
+	await get_tree().create_timer(1.0).timeout
+	mira_phone.open_chat("n")
+	await get_tree().create_timer(1.5).timeout
+	for line in Texts.N_LIVE:
+		mira_phone.set_typing("n", true)
+		await get_tree().create_timer(1.6 + line.length() * 0.03).timeout
+		mira_phone.set_typing("n", false)
+		mira_phone.receive("n", line)
+		await get_tree().create_timer(2.4).timeout
+	await overlay.think(Texts.N_AFTER, 3.5)
+	await cinema.fade_to(1.0, 1.5)
+	Sfx.play("bell", -8.0)
+	await cinema.caption(Texts.CHAPTER_END, 3.0, 64)
 	await cinema.caption(Texts.TO_BE_CONTINUED, 3.0, 40)

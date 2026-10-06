@@ -2,7 +2,7 @@ extends Node
 ## Developer tool: drives the prologue without a player and saves screenshots.
 ## Only loaded when the game is started with user arguments, e.g.
 ##   godot --path . -- --shots=/tmp/shots --mode=lev
-## Modes: intro, note, lev, mira.
+## Modes: intro, note, lev, mira, ch1.
 
 var _main: Node
 var _dir := "user://shots"
@@ -139,7 +139,85 @@ func _run() -> void:
 			await _shot("mira_unlocked")
 			await _wait(5.0)
 			await _shot("mira_chapter")
+		"ch1":
+			await _chapter_one()
 	get_tree().quit()
+
+
+## Mira's phone, already unlocked: every app, the deduction and the cliffhanger.
+func _chapter_one() -> void:
+	_main.cinema.set_black(0.0)
+	var m: Control = _main.Phone.new()
+	m.setup(_main.MiraPhone)
+	m.viewed.connect(_main._on_mira_viewed)
+	_main.mira_phone = m
+	_main._phones.add_child(m)
+	_main._showing_mira = true
+	await _wait(1.0)
+	await _shot("ch1_lock")
+	m._unlock()
+	_main.stage = _main.Stage.CHAPTER_ONE
+	await _wait(1.0)
+	await _shot("ch1_home")
+	m.open_app("messages")
+	await _wait(1.0)
+	await _shot("ch1_chats")
+	var msgr: Control = m._stack.back()
+	for id in ["timur", "dasha", "n", "mom"]:
+		msgr._open_chat(m._chat(id))
+		await _wait(1.5)
+		await _shot("ch1_chat_" + id)
+		m.pop()
+		await _wait(0.5)
+	m.pop()
+	await _wait(0.4)
+	m.open_app("notes")
+	await _wait(1.0)
+	await _shot("ch1_notes")
+	m._stack.back()._open(m.data.NOTES[0])
+	await _wait(1.0)
+	await _shot("ch1_note")
+	m.pop()
+	m.pop()
+	await _wait(0.4)
+	m.open_app("photos")
+	await _wait(1.0)
+	await _shot("ch1_photos")
+	m._stack.back()._open(m.data.PHOTOS[1])
+	await _wait(1.0)
+	await _shot("ch1_course")
+	m.pop()
+	m.pop()
+	await _wait(0.4)
+	m.open_app("voicemail")
+	await _wait(1.0)
+	await _shot("ch1_voice")
+	m.pop()
+	await _wait(9.0)
+	await _shot("ch1_deduce")
+	# A wrong answer first, then the right one.
+	await _press_option("Даша")
+	await _wait(2.0)
+	await _shot("ch1_wrong")
+	await _wait(4.0)
+	await _press_option("Тимур")
+	await _wait(2.0)
+	await _shot("ch1_right")
+	await _wait(14.0)
+	await _shot("ch1_n_live")
+	await _wait(5.0)
+	await _shot("ch1_n_live2")
+	await _wait(8.0)
+	await _shot("ch1_end")
+
+
+func _press_option(text: String) -> void:
+	for i in 40:
+		for b in _main.overlay.find_children("*", "Button", true, false):
+			if b.text == text and b.is_visible_in_tree():
+				b.pressed.emit()
+				return
+		await _wait(0.25)
 
 
 func _tap() -> void:

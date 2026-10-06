@@ -11,6 +11,11 @@ const MINE := Color(0.2, 0.42, 0.74)
 const THEIRS := Color(0.13, 0.16, 0.22)
 const TEXT := Color(0.94, 0.96, 1.0)
 const SUB := Color(0.55, 0.62, 0.74)
+const DELETED := "Сообщение удалено"
+## Crops a square photo into a round avatar.
+const ROUND := "shader_type canvas_item;\nvoid fragment() {\n\tCOLOR = texture(TEXTURE, UV);\n\tCOLOR.a *= smoothstep(0.5, 0.485, length(UV - vec2(0.5)));\n}"
+
+static var _round: Shader
 
 var phone: Control
 var light := false
@@ -60,7 +65,7 @@ func _chat_row(chat: Dictionary) -> Control:
 	row.custom_minimum_size = Vector2(1080, 176)
 	if chat.get("pinned", false):
 		row.add_child(UI.full(UI.rect(Color(1, 1, 1, 0.03))))
-	var av := _avatar(chat["name"], chat["color"], 116)
+	var av := _avatar(chat, 116)
 	av.position = Vector2(40, 30)
 	row.add_child(av)
 	var last: Array = chat["messages"][-1]
@@ -74,7 +79,7 @@ func _chat_row(chat: Dictionary) -> Control:
 	time.size = Vector2(200, 40)
 	time.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(time)
-	var preview := UI.label(("Вы: " if last[0] == "me" else "") + last[1], 36, SUB)
+	var preview := UI.label(_preview(last), 36, SUB)
 	preview.position = Vector2(190, 98)
 	preview.size = Vector2(700, 50)
 	preview.clip_text = true
@@ -96,7 +101,26 @@ func _chat_row(chat: Dictionary) -> Control:
 	return row
 
 
-func _avatar(name: String, color: Color, d: float) -> Control:
+func _preview(m: Array) -> String:
+	if m[0] == "deleted":
+		return DELETED
+	return ("Вы: " if m[0] == "me" else "") + m[1]
+
+
+## A round photo when the contact has one, otherwise a coloured initial.
+func _avatar(chat: Dictionary, d: float) -> Control:
+	if chat.has("avatar"):
+		if not _round:
+			_round = Shader.new()
+			_round.code = ROUND
+		var pic := UI.cover(load(chat["avatar"]), Vector2(d, d))
+		pic.size = Vector2(d, d)
+		var mat := ShaderMaterial.new()
+		mat.shader = _round
+		pic.material = mat
+		return pic
+	var name: String = chat["name"]
+	var color: Color = chat["color"]
 	var av := Control.new()
 	av.custom_minimum_size = Vector2(d, d)
 	av.size = Vector2(d, d)
@@ -125,21 +149,11 @@ func _open_chat(chat: Dictionary) -> void:
 	var list := UI.scroller(v, phone.STATUS_H + 150, 150, 30)
 	list.add_theme_constant_override("separation", 10)
 	list.add_child(UI.spacer(20))
-	var prev_who := ""
+	var state := {"prev": ""}
 	for m in chat["messages"]:
-		if m[0] == "day":
-			var d := UI.label(m[1], 30, Color(1, 1, 1, 0.85), UI.sans(500))
-			d.add_theme_stylebox_override("normal", UI.box(Color(0, 0, 0, 0.35), 24, 14))
-			var holder := CenterContainer.new()
-			holder.add_child(d)
-			list.add_child(UI.spacer(10))
-			list.add_child(holder)
-			list.add_child(UI.spacer(10))
-			prev_who = ""
-		else:
-			list.add_child(_bubble(m[1], m[2], m[0] == "me", m[0] != prev_who))
-			prev_who = m[0]
-	list.add_child(UI.spacer(20))
+		_add_row(list, m, state)
+	var tail := UI.spacer(20)
+	list.add_child(tail)
 
 	var top := UI.rect(BAR)
 	top.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -148,7 +162,7 @@ func _open_chat(chat: Dictionary) -> void:
 	var back := UI.text_button("‹", 90, BLUE, phone.pop, UI.sans(300))
 	back.position = Vector2(20, phone.STATUS_H - 6)
 	v.add_child(back)
-	var av := _avatar(chat["name"], chat["color"], 96)
+	var av := _avatar(chat, 96)
 	av.position = Vector2(110, phone.STATUS_H + 18)
 	v.add_child(av)
 	var name := UI.label(chat["name"], 42, TEXT, UI.sans(600))
@@ -188,12 +202,41 @@ func _open_chat(chat: Dictionary) -> void:
 		mic.draw_line(Vector2(45, 66), Vector2(45, 74), Color.WHITE, 4))
 	v.add_child(mic)
 
+	# The phone delivers live messages and "typing…" into the open chat.
+	v.set_meta("chat_id", chat["id"])
+	v.set_meta("status", status)
+	v.set_meta("append", func(m: Array) -> void:
+		_add_row(list, m, state)
+		list.move_child(tail, -1)
+		_scroll_to_end(v))
 	phone.push(v)
-	# Conversations open at the newest message, like a real messenger.
+	_scroll_to_end(v)
+
+
+## Conversations open at the newest message, like a real messenger.
+func _scroll_to_end(v: Control) -> void:
 	var scroll: ScrollContainer = v.get_meta("scroll")
 	await get_tree().process_frame
 	await get_tree().process_frame
-	scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+	if is_instance_valid(scroll):
+		scroll.scroll_vertical = int(scroll.get_v_scroll_bar().max_value)
+
+
+func _add_row(list: VBoxContainer, m: Array, state: Dictionary) -> void:
+	if m[0] == "day":
+		var d := UI.label(m[1], 30, Color(1, 1, 1, 0.85), UI.sans(500))
+		d.add_theme_stylebox_override("normal", UI.box(Color(0, 0, 0, 0.35), 24, 14))
+		var holder := CenterContainer.new()
+		holder.add_child(d)
+		list.add_child(UI.spacer(10))
+		list.add_child(holder)
+		list.add_child(UI.spacer(10))
+		state["prev"] = ""
+		return
+	# A deleted message still belongs to the other side's group of bubbles.
+	var who: String = "them" if m[0] == "deleted" else m[0]
+	list.add_child(_bubble(m[1], m[2], who == "me", who != state["prev"], m[0] == "deleted"))
+	state["prev"] = who
 
 
 func _draw_wallpaper(c: Control) -> void:
@@ -216,12 +259,15 @@ func _draw_wallpaper(c: Control) -> void:
 					c.draw_arc(p, 18, 0.3, PI - 0.3, 10, col, 3)
 
 
-func _bubble(text: String, time: String, mine: bool, first_in_group: bool) -> Control:
+func _bubble(text: String, time: String, mine: bool, first_in_group: bool, deleted := false) -> Control:
 	var row := HBoxContainer.new()
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var panel := PanelContainer.new()
 	var sb := UI.box(MINE if mine else THEIRS, 38)
+	if deleted:
+		sb = UI.box(Color(0, 0, 0, 0), 38, 0, Color(1, 1, 1, 0.18), 2)
+		text = DELETED
 	# The corner nearest the speaker is sharp on the first bubble: a tail.
 	if first_in_group:
 		if mine:
@@ -239,7 +285,9 @@ func _bubble(text: String, time: String, mine: bool, first_in_group: bool) -> Co
 	panel.add_child(box)
 	var f := UI.sans()
 	var width := f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 42).x
-	box.add_child(UI.label(text, 42, TEXT, null, minf(width + 8.0, 690.0)))
+	if deleted:
+		width = f.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
+	box.add_child(UI.label(text, 40 if deleted else 42, SUB if deleted else TEXT, null, minf(width + 8.0, 690.0)))
 	var meta := UI.label(time + ("  ✓✓" if mine else ""), 26, Color(1, 1, 1, 0.55))
 	meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(meta)

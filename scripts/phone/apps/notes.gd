@@ -50,8 +50,15 @@ func _card(n: Dictionary) -> Control:
 	v.add_theme_constant_override("separation", 6)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(v)
-	v.add_child(UI.label(n["title"], 46, INK, UI.sans(600)))
-	var first: String = n["body"].split("\n")[0]
+	var locked: bool = n.get("locked", false)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 18)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if locked:
+		head.add_child(_lock_icon())
+	head.add_child(UI.label(n["title"], 46, INK, UI.sans(600)))
+	v.add_child(head)
+	var first: String = "Заблокировано" if locked else n["body"].split("\n")[0]
 	var preview := UI.label("%s   %s" % [n["date"], first], 34, PENCIL)
 	preview.clip_text = true
 	preview.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -61,8 +68,24 @@ func _card(n: Dictionary) -> Control:
 	return card
 
 
+func _lock_icon() -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(40, 56)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.draw.connect(func() -> void:
+		c.draw_arc(Vector2(20, 24), 12, PI, TAU, 12, PENCIL, 5)
+		c.draw_line(Vector2(8, 24), Vector2(8, 30), PENCIL, 5)
+		c.draw_line(Vector2(32, 24), Vector2(32, 30), PENCIL, 5)
+		c.draw_rect(Rect2(2, 28, 36, 26), PENCIL))
+	return c
+
+
 func _open(n: Dictionary) -> void:
 	phone.emit_viewed("note:" + n["id"])
+	if n.get("locked", false):
+		# A locked note stays shut: its password is not the phone's code.
+		Sfx.play("error", -8.0)
+		return
 	var v := Control.new()
 	v.add_child(UI.full(UI.rect(PAPER)))
 	var lines := Control.new()

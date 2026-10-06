@@ -444,6 +444,86 @@ func emit_viewed(key: String) -> void:
 	viewed.emit(key)
 
 
+# --- Live messages --------------------------------------------------------------
+
+func _chat(chat_id: String) -> Dictionary:
+	for c in chats:
+		if c["id"] == chat_id:
+			return c
+	return {}
+
+
+## The open conversation with this contact, if it is the page on top.
+func _open_chat_view(chat_id: String) -> Control:
+	if _stack.is_empty() or not _stack.back().has_meta("chat_id"):
+		return null
+	return _stack.back() if _stack.back().get_meta("chat_id") == chat_id else null
+
+
+## "Typing…" under the contact's name while their message is on its way.
+func set_typing(chat_id: String, on: bool) -> void:
+	var chat := _chat(chat_id)
+	if on:
+		chat["status"] = "печатает…"
+	elif chat["status"] == "печатает…":
+		chat["status"] = "в сети"
+	var view := _open_chat_view(chat_id)
+	if view:
+		var l: Label = view.get_meta("status")
+		l.text = chat["status"]
+		l.add_theme_color_override("font_color", accent if on else Color(0.36, 0.62, 0.98))
+
+
+## A message arriving right now: straight into the open chat, otherwise a
+## banner at the top and an unread badge.
+func receive(chat_id: String, text: String) -> void:
+	var chat := _chat(chat_id)
+	var row := ["them", text, clock_text()]
+	chat["messages"].append(row)
+	chat["status"] = "в сети"
+	Sfx.play("ping", -6.0)
+	var view := _open_chat_view(chat_id)
+	if view:
+		view.get_meta("append").call(row)
+		return
+	chat["unread"] = int(chat["unread"]) + 1
+	if _stack.is_empty():
+		_refresh_home_badges()
+	elif _stack.back().has_method("refresh"):
+		_stack.back().refresh()
+	_banner(chat, text)
+
+
+func _banner(chat: Dictionary, text: String) -> void:
+	var card := _notice_card(chat["name"], text, "сейчас")
+	card.position = Vector2(40, -260)
+	card.custom_minimum_size.x = W - 80
+	add_child(card)
+	var tap := UI.tap_area(card, func() -> void:
+		card.queue_free()
+		_open_from_banner(chat["id"]), Color(1, 1, 1, 0.08))
+	tap.mouse_filter = Control.MOUSE_FILTER_STOP
+	var tw := card.create_tween()
+	tw.tween_property(card, "position:y", STATUS_H + 10, 0.35).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+	tw.tween_interval(4.0)
+	tw.tween_property(card, "position:y", -260.0, 0.3).set_ease(Tween.EASE_IN)
+	tw.tween_callback(card.queue_free)
+
+
+func _open_from_banner(chat_id: String) -> void:
+	if not is_locked and not _open_chat_view(chat_id):
+		open_app("messages")
+		_stack.back()._open_chat(_chat(chat_id))
+
+
+## Jump straight into a conversation from wherever the phone is.
+func open_chat(chat_id: String) -> void:
+	if is_locked or _open_chat_view(chat_id):
+		return
+	show_home(false)
+	_open_from_banner(chat_id)
+
+
 func _clear_screen() -> void:
 	for c in _screen.get_children():
 		c.queue_free()

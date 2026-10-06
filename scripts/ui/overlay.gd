@@ -187,6 +187,62 @@ func note(text: String) -> void:
 	root.queue_free()
 
 
+## Lev puts the facts together: a question with a few answers over the phone.
+## Returns the index of the chosen answer.
+func choose(header: String, question: String, options: Array) -> int:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(root)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.82)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(dim)
+	var box := VBoxContainer.new()
+	box.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	box.offset_left = 90
+	box.offset_right = -90
+	box.offset_top = 520
+	box.add_theme_constant_override("separation", 26)
+	root.add_child(box)
+	var h := UI.label(header, 34, WARM, UI.sans(700))
+	h.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(h)
+	var q := UI.label(question, 58, Color(0.96, 0.92, 0.86), UI.serif(true), 900)
+	q.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(q)
+	box.add_child(UI.spacer(20))
+	var picked := {"i": -1}
+	var done := func(i: int) -> void:
+		if picked["i"] < 0:
+			picked["i"] = i
+			Sfx.play("click", -8.0)
+	for i in options.size():
+		var b := Button.new()
+		b.text = options[i]
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(0, 130)
+		b.add_theme_font_override("font", UI.sans(600))
+		b.add_theme_font_size_override("font_size", 44)
+		b.add_theme_color_override("font_color", WARM)
+		b.add_theme_color_override("font_hover_color", WARM)
+		b.add_theme_color_override("font_pressed_color", Color.WHITE)
+		b.add_theme_stylebox_override("normal", _box(Color(0.06, 0.05, 0.05, 0.95), 65, 0, WARM))
+		b.add_theme_stylebox_override("hover", _box(Color(0.06, 0.05, 0.05, 0.95), 65, 0, WARM))
+		b.add_theme_stylebox_override("pressed", _box(Color(0.35, 0.22, 0.1, 0.95), 65, 0, WARM))
+		b.pressed.connect(done.bind(i))
+		box.add_child(b)
+	root.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(root, "modulate:a", 1.0, 0.5)
+	while picked["i"] < 0:
+		await get_tree().process_frame
+	tw = create_tween()
+	tw.tween_property(root, "modulate:a", 0.0, 0.4)
+	await tw.finished
+	root.queue_free()
+	return picked["i"]
+
+
 func _box(color: Color, radius: int, margin: int, border := Color(0, 0, 0, 0)) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = color
