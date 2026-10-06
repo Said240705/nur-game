@@ -110,16 +110,14 @@ func _run() -> void:
 			_main.cinema.set_black(1.0)
 			_main.lev_phone.visible = true
 			_main._on_door()
-			var shot_note := false
 			for i in 60:
-				await _wait(1.0)
-				if not shot_note and _main.overlay.get_child_count() > 5:
-					await _wait(2.5)
-					await _shot("mira_note")
-					shot_note = true
+				await _wait(1.5)
+				if i < 12:
+					await _shot("door_%02d" % i)
 				if _main.mira_phone:
 					break
-				_tap()
+				if i % 2 == 1:
+					_tap()
 			await _wait(3.0)
 			await _shot("mira_lock")
 			var m: Control = _main.mira_phone

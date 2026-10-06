@@ -19,7 +19,8 @@ var _goal_id := 0
 
 
 func _ready() -> void:
-	layer = 12
+	# Above the film frames (panels) so the parcel note shows over the box.
+	layer = 16
 	process_mode = Node.PROCESS_MODE_ALWAYS
 
 	_goal = Label.new()

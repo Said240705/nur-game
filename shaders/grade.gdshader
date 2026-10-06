@@ -5,7 +5,7 @@ shader_type canvas_item;
 uniform float grain = 0.07;
 uniform float vignette = 0.9;
 uniform float contrast = 1.08;
-uniform float exposure = 1.15;
+uniform float exposure = 1.25;
 
 void fragment() {
 	vec4 c = texture(TEXTURE, UV);

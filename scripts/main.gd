@@ -10,7 +10,9 @@ const Cinema := preload("res://scripts/ui/cinema.gd")
 const Panels := preload("res://scripts/ui/panels.gd")
 const Overlay := preload("res://scripts/ui/overlay.gd")
 const CITY := preload("res://assets/art/lev/city_night.jpg")
-const FACE := preload("res://assets/art/lev/face_tired.jpg")
+const WINDOW := preload("res://assets/art/lev/window.jpg")
+const BOARD := preload("res://assets/art/lev/board.jpg")
+const PARCEL := preload("res://assets/art/lev/parcel.jpg")
 
 enum Stage { INTRO, LEV_PHONE, PARCEL, MIRA_LOCKED, CHAPTER_ONE }
 
@@ -115,12 +117,19 @@ func _city() -> void:
 	panels.shot(CITY, Vector2(0.75, 0.42), Vector2(0.3, 0.45), 16.0, 1.25, 1.35)
 	for line in Texts.CITY_VOICE:
 		await panels.say(line, 2.6)
+	# Push in on the one lit window: Lev, awake, staring at his phone.
 	await cinema.fade_to(1.0, 0.8)
-	panels.shot(FACE, Vector2(0.5, 0.35), Vector2(0.5, 0.45), 14.0, 1.0, 1.12)
-	Sfx.rain_muffle = 0.7
+	panels.shot(WINDOW, Vector2(0.62, 0.5), Vector2(0.66, 0.5), 12.0, 1.0, 1.25)
 	await cinema.fade_to(0.0, 1.0)
-	for line in Texts.FACE_VOICE:
-		await panels.say(line, 3.0)
+	await panels.say(Texts.FACE_VOICE[0], 3.0)
+	await panels.say(Texts.FACE_VOICE[1], 3.0)
+	# Inside: from Lev at his desk across the wall of red string to Vera's photo.
+	await cinema.fade_to(1.0, 0.8)
+	Sfx.rain_muffle = 0.7
+	panels.shot(BOARD, Vector2(0.4, 0.5), Vector2(0.71, 0.3), 9.0, 1.0, 1.2)
+	await cinema.fade_to(0.0, 1.0)
+	await cinema.wait(3.0)
+	await panels.say(Texts.FACE_VOICE[2], 3.4)
 	await cinema.fade_to(1.0, 1.0)
 	await panels.hide_frames(0.1)
 
@@ -152,10 +161,17 @@ func _on_viewed(key: String) -> void:
 func _on_door() -> void:
 	await cinema.fade_to(1.0, 0.8)
 	lev_phone.visible = false
+	overlay.set_goal("")
+	panels.shot(PARCEL, Vector2(0.52, 0.55), Vector2(0.56, 0.6), 14.0, 1.0, 1.12)
+	Sfx.rain_muffle = 0.9
+	await cinema.fade_to(0.0, 1.2)
 	for line in Texts.HALLWAY_VOICE:
-		await cinema.caption(line, 2.6, 42)
+		await panels.say(line, 2.8)
+	# The note is read over the box itself; the overlay sits above the film frames.
 	await overlay.note(Texts.NOTE_TEXT)
-	await cinema.caption(Texts.AFTER_NOTE, 3.0, 42)
+	await panels.say(Texts.AFTER_NOTE, 3.2)
+	await cinema.fade_to(1.0, 0.8)
+	await panels.hide_frames(0.1)
 
 	mira_phone = Phone.new()
 	mira_phone.setup(MiraPhone)
