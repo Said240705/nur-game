@@ -104,8 +104,10 @@ func _draw_rain() -> void:
 
 ## Show a frame and drift across it. `from`/`to` are focus points in 0..1 of the
 ## image; `zoom` scales the image beyond "cover the screen".
-func shot(tex: Texture2D, from: Vector2, to: Vector2, seconds: float, zoom_from := 1.0, zoom_to := 1.08) -> void:
+func shot(tex: Texture2D, from: Vector2, to: Vector2, seconds: float, zoom_from := 1.0, zoom_to := 1.08, rain := true) -> void:
 	visible = true
+	# Rain streaks only belong on outdoor frames.
+	_rain.visible = rain
 	_image.texture = tex
 	_image.modulate.a = 0.0
 	var fade := create_tween()

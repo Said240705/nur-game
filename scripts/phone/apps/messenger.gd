@@ -14,6 +14,7 @@ const SUB := Color(0.55, 0.62, 0.74)
 
 var phone: Control
 var light := false
+var _list: VBoxContainer
 
 
 func build() -> void:
@@ -36,9 +37,16 @@ func build() -> void:
 	search.add_child(s)
 	add_child(search)
 
-	var list := UI.scroller(self, phone.STATUS_H + 260, 40)
+	_list = UI.scroller(self, phone.STATUS_H + 260, 40)
+	refresh()
+
+
+## Rebuilds the chat rows, e.g. after coming back from a chat that is now read.
+func refresh() -> void:
+	for c in _list.get_children():
+		c.queue_free()
 	for chat in _sorted(phone.chats):
-		list.add_child(_chat_row(chat))
+		_list.add_child(_chat_row(chat))
 
 
 func _sorted(chats: Array) -> Array:

@@ -5,8 +5,11 @@ const INTER := preload("res://assets/fonts/Inter.ttf")
 const CAVEAT := preload("res://assets/fonts/Caveat.ttf")
 const SERIF := preload("res://assets/fonts/PTSerif-Regular.ttf")
 const SERIF_BOLD := preload("res://assets/fonts/PTSerif-Bold.ttf")
+const TOUCH_SCROLL := preload("res://scripts/phone/touch_scroll.gd")
 
 static var _cache := {}
+## True while a finger is scrolling a page; buttons ignore the release then.
+static var dragging := false
 
 
 ## Inter at a given weight (400 regular … 700 bold).
@@ -84,9 +87,16 @@ static func tap_area(parent: Control, on_press: Callable, pressed_tint := Color(
 	for s in ["normal", "hover", "focus", "disabled"]:
 		b.add_theme_stylebox_override(s, StyleBoxEmpty.new())
 	b.add_theme_stylebox_override("pressed", box(pressed_tint, 16))
-	b.pressed.connect(on_press)
+	b.pressed.connect(_guarded(on_press))
 	parent.add_child(b)
 	return b
+
+
+## A press that ended a scroll gesture is not a tap.
+static func _guarded(on_press: Callable) -> Callable:
+	return func() -> void:
+		if not dragging:
+			on_press.call()
 
 
 ## Wraps `content` so the whole of it can be tapped (works inside boxes too).
@@ -108,13 +118,13 @@ static func text_button(text: String, size_px: int, color: Color, on_press: Call
 	b.add_theme_color_override("font_pressed_color", color.darkened(0.3))
 	for s in ["normal", "hover", "pressed", "focus", "disabled"]:
 		b.add_theme_stylebox_override(s, StyleBoxEmpty.new())
-	b.pressed.connect(on_press)
+	b.pressed.connect(_guarded(on_press))
 	return b
 
 
 ## A vertical scroller filling `parent` between the given top and bottom insets.
 static func scroller(parent: Control, top: float, bottom := 0.0, side := 0.0) -> VBoxContainer:
-	var scroll := ScrollContainer.new()
+	var scroll: ScrollContainer = TOUCH_SCROLL.new()
 	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
 	scroll.offset_top = top
 	scroll.offset_bottom = -bottom

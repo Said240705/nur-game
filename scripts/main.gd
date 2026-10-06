@@ -126,7 +126,7 @@ func _city() -> void:
 	# Inside: from Lev at his desk across the wall of red string to Vera's photo.
 	await cinema.fade_to(1.0, 0.8)
 	Sfx.rain_muffle = 0.7
-	panels.shot(BOARD, Vector2(0.4, 0.5), Vector2(0.71, 0.3), 9.0, 1.0, 1.2)
+	panels.shot(BOARD, Vector2(0.4, 0.5), Vector2(0.71, 0.3), 9.0, 1.0, 1.2, false)
 	await cinema.fade_to(0.0, 1.0)
 	await cinema.wait(3.0)
 	await panels.say(Texts.FACE_VOICE[2], 3.4)
@@ -142,6 +142,18 @@ func _start_lev_phone() -> void:
 	Sfx.play("buzz", -6.0)
 	await cinema.fade_to(0.0, 1.2)
 	overlay.set_goal(Texts.GOAL_LOOK)
+	_nudge()
+
+
+## If the player wanders without finding what moves the story on, Lev's own
+## thoughts point the way, gently and only once each.
+func _nudge() -> void:
+	await get_tree().create_timer(75.0).timeout
+	if stage == Stage.LEV_PHONE and not _seen.has("news:mira"):
+		overlay.think(Texts.NUDGE_NEWS, 5.0)
+	await get_tree().create_timer(60.0).timeout
+	if stage == Stage.LEV_PHONE and not (_seen.has("chat:vera") or _seen.has("note:case_v")):
+		overlay.think(Texts.NUDGE_VERA, 5.0)
 
 
 func _on_viewed(key: String) -> void:
@@ -162,7 +174,7 @@ func _on_door() -> void:
 	await cinema.fade_to(1.0, 0.8)
 	lev_phone.visible = false
 	overlay.set_goal("")
-	panels.shot(PARCEL, Vector2(0.52, 0.55), Vector2(0.56, 0.6), 14.0, 1.0, 1.12)
+	panels.shot(PARCEL, Vector2(0.52, 0.55), Vector2(0.56, 0.6), 14.0, 1.0, 1.12, false)
 	Sfx.rain_muffle = 0.9
 	await cinema.fade_to(0.0, 1.2)
 	for line in Texts.HALLWAY_VOICE:

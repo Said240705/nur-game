@@ -35,6 +35,9 @@ var _stack: Array[Control] = []
 var _code_entry := ""
 var _dots: HBoxContainer
 var _battery := 100
+## Minutes since midnight shown on the clock; it runs while the phone is on screen.
+var _minutes := 0.0
+var _lock_time: Label
 
 
 func setup(phone_data: Script) -> void:
@@ -42,6 +45,8 @@ func setup(phone_data: Script) -> void:
 	accent = data.ACCENT
 	_battery = data.LOCK["battery"]
 	chats = data.CHATS.duplicate(true)
+	var hm: PackedStringArray = data.LOCK["time"].split(":")
+	_minutes = int(hm[0]) * 60 + int(hm[1])
 
 
 func _ready() -> void:
@@ -55,9 +60,25 @@ func _ready() -> void:
 	var bg := UI.rect(BG)
 	add_child(UI.full(bg))
 	_screen = Control.new()
+	_screen.name = "PhoneScreen"
 	add_child(UI.full(_screen))
 	_build_status_bar()
 	_show_lock()
+
+
+func _process(delta: float) -> void:
+	if not is_visible_in_tree():
+		return
+	var before := clock_text()
+	_minutes = fmod(_minutes + delta / 60.0, 24.0 * 60.0)
+	if clock_text() != before:
+		_status_time.text = clock_text()
+		if is_instance_valid(_lock_time):
+			_lock_time.text = clock_text()
+
+
+func clock_text() -> String:
+	return "%02d:%02d" % [int(_minutes) / 60, int(_minutes) % 60]
 
 
 func battery() -> int:
@@ -81,7 +102,7 @@ func _build_status_bar() -> void:
 	bar.offset_bottom = STATUS_H
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bar)
-	_status_time = UI.label(data.LOCK["time"], 40, TEXT, UI.sans(600))
+	_status_time = UI.label(clock_text(), 40, TEXT, UI.sans(600))
 	_status_time.position = Vector2(70, 38)
 	bar.add_child(_status_time)
 	_status_batt = UI.label("%d%%" % _battery, 38, TEXT, UI.sans(600))
@@ -113,7 +134,8 @@ func _show_lock() -> void:
 	date.offset_top = 190
 	date.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lock.add_child(date)
-	var time := UI.label(data.LOCK["time"], 210, TEXT, UI.sans(600))
+	var time := UI.label(clock_text(), 210, TEXT, UI.sans(600))
+	_lock_time = time
 	time.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	time.offset_top = 230
 	time.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -272,14 +294,16 @@ func _unlock() -> void:
 
 # --- Home screen ------------------------------------------------------------
 
-func show_home() -> void:
+func show_home(fade := true) -> void:
 	_clear_screen()
 	_status_style(false)
 	var home := Control.new()
 	_screen.add_child(UI.full(home))
 	_wallpaper(home, 0.6)
+	_lock_time = null
 
 	var grid := GridContainer.new()
+	grid.name = "AppGrid"
 	grid.columns = 4
 	grid.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	grid.offset_top = 220
@@ -290,8 +314,9 @@ func show_home() -> void:
 	home.add_child(grid)
 	for app in data.APPS:
 		grid.add_child(_app_icon(app))
-	home.modulate.a = 0.0
-	home.create_tween().tween_property(home, "modulate:a", 1.0, 0.35)
+	if fade:
+		home.modulate.a = 0.0
+		home.create_tween().tween_property(home, "modulate:a", 1.0, 0.35)
 
 
 func _app_icon(app: Dictionary) -> Control:
@@ -392,9 +417,27 @@ func pop() -> void:
 		return
 	var view: Control = _stack.pop_back()
 	_status_style(_stack.back().get_meta("light", false) if not _stack.is_empty() else false)
+	# What lies underneath may be stale (read chats, badges): refresh it.
+	if _stack.is_empty():
+		_refresh_home_badges()
+	elif _stack.back().has_method("refresh"):
+		_stack.back().refresh()
 	var tw := view.create_tween()
 	tw.tween_property(view, "position:x", W, 0.22).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_CUBIC)
 	tw.tween_callback(view.queue_free)
+
+
+## Rebuild the icon grid on the home page (the bottom of the stack) in place.
+func _refresh_home_badges() -> void:
+	for c in _screen.get_children():
+		if c.is_queued_for_deletion():
+			continue
+		var grid := c.find_child("AppGrid", true, false) as GridContainer
+		if grid:
+			for icon in grid.get_children():
+				icon.queue_free()
+			for app in data.APPS:
+				grid.add_child(_app_icon(app))
 
 
 func emit_viewed(key: String) -> void:
