@@ -26,3 +26,5 @@ const NOTES := []
 const NEWS := []
 const VOICEMAIL := []
 const PHOTOS := []
+const ALBUMS := []
+const SITE := {}

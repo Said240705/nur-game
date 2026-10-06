@@ -5,6 +5,7 @@ extends CanvasLayer
 signal door_opened
 signal switch_pressed
 
+const UI := preload("res://scripts/phone/ui.gd")
 const INK := Color(0.16, 0.12, 0.1)
 const WARM := Color(1.0, 0.8, 0.55)
 
@@ -14,6 +15,7 @@ var _thought_bg: Panel
 var _switch: Button
 var _door: Button
 var _thought_id := 0
+var _goal_id := 0
 
 
 func _ready() -> void:
@@ -30,6 +32,7 @@ func _ready() -> void:
 	_goal.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_goal.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_goal.add_theme_font_override("font", UI.sans(600))
 	_goal.add_theme_font_size_override("font_size", 32)
 	_goal.add_theme_color_override("font_color", WARM)
 	_goal.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -54,6 +57,7 @@ func _ready() -> void:
 	_thought.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_thought.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_thought.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_thought.add_theme_font_override("font", UI.sans(500))
 	_thought.add_theme_font_size_override("font_size", 40)
 	_thought.add_theme_color_override("font_color", Color(0.96, 0.92, 0.86))
 	_thought.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -94,9 +98,17 @@ func _ready() -> void:
 	add_child(_door)
 
 
+## Shows the current goal for a while, then lets it fade so it never hides
+## the bottom of an app for long.
 func set_goal(text: String) -> void:
 	_goal.text = text
 	_goal.visible = text != ""
+	_goal.modulate.a = 1.0
+	_goal_id += 1
+	var id := _goal_id
+	await get_tree().create_timer(7.0).timeout
+	if id == _goal_id and is_instance_valid(_goal):
+		create_tween().tween_property(_goal, "modulate:a", 0.0, 1.0)
 
 
 func show_switch(label: String) -> void:
@@ -150,9 +162,10 @@ func note(text: String) -> void:
 	l.text = text
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.custom_minimum_size.x = 720
-	l.add_theme_font_size_override("font_size", 46)
+	l.add_theme_font_override("font", UI.hand(600))
+	l.add_theme_font_size_override("font_size", 64)
 	l.add_theme_color_override("font_color", INK)
-	l.add_theme_constant_override("line_spacing", 14)
+	l.add_theme_constant_override("line_spacing", 4)
 	paper.add_child(l)
 	root.modulate.a = 0.0
 	var tw := create_tween()

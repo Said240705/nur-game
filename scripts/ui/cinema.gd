@@ -2,6 +2,7 @@ extends CanvasLayer
 ## Film language for the director: fades to black, letterbox bars,
 ## captions that wait for a tap, and the title card.
 
+const UI := preload("res://scripts/phone/ui.gd")
 const TEXT := Color(0.93, 0.94, 0.96)
 const BAR := 140.0
 
@@ -31,6 +32,7 @@ func _ready() -> void:
 	add_child(_fade)
 
 	_title = _label(104, 0.0)
+	_title.add_theme_font_override("font", UI.serif(true))
 	_subtitle = _label(34, 150.0)
 	_subtitle.add_theme_color_override("font_color", Color(1.0, 0.8, 0.6))
 	_header = _label(26, -190.0)
@@ -65,6 +67,7 @@ func _bar(preset: Control.LayoutPreset) -> ColorRect:
 
 func _label(font_size: int, shift_y: float) -> Label:
 	var l := Label.new()
+	l.add_theme_font_override("font", UI.sans(500))
 	l.set_anchors_preset(Control.PRESET_FULL_RECT)
 	l.offset_left = 80.0
 	l.offset_right = -80.0

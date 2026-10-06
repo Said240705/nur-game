@@ -69,7 +69,8 @@ func _ready() -> void:
 	_voice.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_voice.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_voice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_voice.add_theme_font_size_override("font_size", 50)
+	_voice.add_theme_font_override("font", preload("res://scripts/phone/ui.gd").serif())
+	_voice.add_theme_font_size_override("font_size", 52)
 	_voice.add_theme_color_override("font_color", Color(0.96, 0.92, 0.85))
 	_voice.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
 	_voice.add_theme_constant_override("shadow_offset_y", 3)
