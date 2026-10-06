@@ -2,7 +2,7 @@ extends Node
 ## Developer tool: drives the prologue without a player and saves screenshots.
 ## Only loaded when the game is started with user arguments, e.g.
 ##   godot --path . -- --shots=/tmp/shots --mode=lev
-## Modes: intro, note, lev, mira, ch1.
+## Modes: intro, note, lev, mira, ch1, resume.
 
 var _main: Node
 var _dir := "user://shots"
@@ -141,6 +141,14 @@ func _run() -> void:
 			await _shot("mira_chapter")
 		"ch1":
 			await _chapter_one()
+		"resume":
+			_main.Save.store("chapter_one")
+			_main._intro()
+			await _wait(2.0)
+			await _shot("resume_menu")
+			await _press_option("Продолжить")
+			await _wait(9.0)
+			await _shot("resume_ch1")
 	get_tree().quit()
 
 
@@ -214,7 +222,7 @@ func _chapter_one() -> void:
 func _press_option(text: String) -> void:
 	for i in 40:
 		for b in _main.overlay.find_children("*", "Button", true, false):
-			if b.text == text and b.is_visible_in_tree():
+			if b.text.begins_with(text) and b.is_visible_in_tree():
 				b.pressed.emit()
 				return
 		await _wait(0.25)

@@ -9,6 +9,7 @@ const MiraPhone := preload("res://scripts/story/mira_phone.gd")
 const Cinema := preload("res://scripts/ui/cinema.gd")
 const Panels := preload("res://scripts/ui/panels.gd")
 const Overlay := preload("res://scripts/ui/overlay.gd")
+const Save := preload("res://scripts/save.gd")
 const CITY := preload("res://assets/art/lev/city_night.jpg")
 const WINDOW := preload("res://assets/art/lev/window.jpg")
 const BOARD := preload("res://assets/art/lev/board.jpg")
@@ -28,6 +29,8 @@ var _seen := {}
 var _mira_seen := {}
 var _showing_mira := false
 var _wrong_codes := 0
+## True while restoring a checkpoint: skip lines the player has already heard.
+var _resuming := false
 
 
 func _ready() -> void:
@@ -61,6 +64,19 @@ func _intro() -> void:
 	cinema.set_black(1.0)
 	Sfx.rain_level = 0.0
 	await cinema.wait(0.8)
+	var checkpoint := Save.load_checkpoint()
+	if checkpoint != "":
+		# The menu sits over the rainy city, below the black of the cinema layer.
+		panels.shot(CITY, Vector2(0.6, 0.4), Vector2(0.5, 0.42), 20.0, 1.15, 1.2)
+		await cinema.fade_to(0.0, 1.0)
+		var i: int = await overlay.choose(Texts.TITLE, Texts.CONTINUE_QUESTION,
+			[Texts.CONTINUE % Save.NAMES[checkpoint], Texts.NEW_GAME])
+		await cinema.fade_to(1.0, 0.6)
+		await panels.hide_frames(0.1)
+		if i == 0:
+			_resume(checkpoint)
+			return
+		Save.clear()
 	await _cold_open()
 	await _title()
 	await _city()
@@ -135,8 +151,25 @@ func _city() -> void:
 	await panels.hide_frames(0.1)
 
 
+## Jump straight to a saved checkpoint.
+func _resume(checkpoint: String) -> void:
+	_resuming = true
+	Sfx.rain_level = 0.45
+	Sfx.rain_muffle = 0.75
+	match checkpoint:
+		"lev_phone":
+			_start_lev_phone()
+		"mira_locked":
+			await _give_mira_phone()
+		"chapter_one":
+			await _give_mira_phone(false)
+			mira_phone._unlock()
+	_resuming = false
+
+
 func _start_lev_phone() -> void:
 	stage = Stage.LEV_PHONE
+	Save.store("lev_phone")
 	lev_phone.visible = true
 	Sfx.rain_level = 0.45
 	Sfx.rain_muffle = 0.75
@@ -185,7 +218,14 @@ func _on_door() -> void:
 	await panels.say(Texts.AFTER_NOTE, 3.2)
 	await cinema.fade_to(1.0, 0.8)
 	await panels.hide_frames(0.1)
+	await _give_mira_phone()
 
+
+## Mira's phone, locked, in Lev's hands; Lev's own phone one tap away.
+func _give_mira_phone(locked := true) -> void:
+	if locked:
+		Save.store("mira_locked")
+	lev_phone.visible = false
 	mira_phone = Phone.new()
 	mira_phone.setup(MiraPhone)
 	mira_phone.viewed.connect(_on_mira_viewed)
@@ -195,9 +235,11 @@ func _on_door() -> void:
 	stage = Stage.MIRA_LOCKED
 	Sfx.play("buzz", -8.0)
 	await cinema.fade_to(0.0, 1.2)
+	if not locked:
+		return
 	overlay.set_goal(Texts.GOAL_CODE)
 	overlay.show_switch(Texts.SWITCH_TO_LEV)
-	await overlay.think(Texts.MIRA_WALLPAPER, 4.0)
+	overlay.think(Texts.MIRA_WALLPAPER, 4.0)
 
 
 func _switch_phone() -> void:
@@ -227,9 +269,11 @@ func _on_mira_viewed(key: String) -> void:
 
 func _on_mira_unlocked() -> void:
 	stage = Stage.CHAPTER_ONE
+	Save.store("chapter_one")
 	overlay.set_goal("")
 	overlay.show_switch("")
-	await overlay.think(Texts.UNLOCKED_VOICE, 3.5)
+	if not _resuming:
+		await overlay.think(Texts.UNLOCKED_VOICE, 3.5)
 	await cinema.fade_to(1.0, 1.2)
 	Sfx.play("bell", -8.0)
 	await cinema.caption("%s\n%s" % [Texts.CHAPTER, Texts.CHAPTER_NAME], 3.0, 64)

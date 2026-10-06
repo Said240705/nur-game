@@ -4,6 +4,9 @@ extends RefCounted
 const TITLE := "БЫЛА В СЕТИ"
 const SUBTITLE := "Детектив внутри чужого телефона"
 const TAP_TO_START := "Коснись, чтобы начать"
+const CONTINUE_QUESTION := "С чего начнём?"
+const CONTINUE := "Продолжить: %s"
+const NEW_GAME := "Начать заново"
 
 ## Cold open: a glimpse of the end, then back in time.
 const COLD_OPEN_WHISPER := "— Лев… не надо…"
