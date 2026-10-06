@@ -1,0 +1,71 @@
+name: Android APK
+
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Cache Godot
+        uses: actions/cache@v4
+        with:
+          path: ~/godot-cache
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Install Godot and export templates
+        run: |
+          base=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable
+          mkdir -p ~/godot-cache && cd ~/godot-cache
+          [ -f godot.zip ] || curl -fsSL -o godot.zip "$base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          [ -f templates.tpz ] || curl -fsSL -o templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -o -q godot.zip -d ~/godot
+          tpl=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          mkdir -p "$tpl" /tmp/tpl
+          unzip -o -q templates.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates/android_* "$tpl"/
+          echo "GODOT=$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
+
+      - name: Configure Android export
+        run: |
+          keytool -genkeypair -v -keystore ~/debug.keystore -storepass android \
+            -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          mkdir -p ~/.config/godot
+          cat > ~/.config/godot/editor_settings-${GODOT_VERSION%.*}.tres <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          cat ~/.config/godot/editor_settings-*.tres
+
+      - name: Import project
+        run: $GODOT --headless --import
+
+      - name: Export debug APK
+        run: |
+          mkdir -p build
+          $GODOT --headless --export-debug "Android" build/nur-debug.apk
+          ls -la build
+          test -s build/nur-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nur-debug-apk
+          path: build/nur-debug.apk
