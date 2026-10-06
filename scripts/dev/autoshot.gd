@@ -175,6 +175,12 @@ func _chapter_one() -> void:
 		msgr._open_chat(m._chat(id))
 		await _wait(1.5)
 		await _shot("ch1_chat_" + id)
+		if id == "mom":
+			msgr._open_profile(m._chat("mom"))
+			await _wait(1.0)
+			await _shot("ch1_mom_profile")
+			m.pop()
+			await _wait(0.4)
 		m.pop()
 		await _wait(0.5)
 	m.pop()

@@ -67,6 +67,7 @@ func _intro() -> void:
 	var checkpoint := Save.load_checkpoint()
 	if checkpoint != "":
 		# The menu sits over the rainy city, below the black of the cinema layer.
+		Sfx.music("theme")
 		panels.shot(CITY, Vector2(0.6, 0.4), Vector2(0.5, 0.42), 20.0, 1.15, 1.2)
 		await cinema.fade_to(0.0, 1.0)
 		var i: int = await overlay.choose(Texts.TITLE, Texts.CONTINUE_QUESTION,
@@ -120,6 +121,7 @@ func _cold_open() -> void:
 
 func _title() -> void:
 	Sfx.rain_level = 0.6
+	Sfx.music("theme", 4.0)
 	Sfx.rain_muffle = 0.2
 	panels.shot(CITY, Vector2(0.95, 0.4), Vector2(0.75, 0.4), 14.0, 1.15, 1.25)
 	await cinema.fade_to(0.35, 2.5)
@@ -170,6 +172,7 @@ func _resume(checkpoint: String) -> void:
 func _start_lev_phone() -> void:
 	stage = Stage.LEV_PHONE
 	Save.store("lev_phone")
+	Sfx.music("lonely", 4.0)
 	lev_phone.visible = true
 	Sfx.rain_level = 0.45
 	Sfx.rain_muffle = 0.75
@@ -198,6 +201,8 @@ func _on_viewed(key: String) -> void:
 		stage = Stage.PARCEL
 		await get_tree().create_timer(5.0).timeout
 		Sfx.play("doorbell", -2.0)
+		# The doorbell cuts through: only the rain is left.
+		Sfx.music("", 1.5)
 		overlay.set_goal("")
 		await get_tree().create_timer(0.8).timeout
 		overlay.show_door(Texts.OPEN_DOOR)
@@ -225,6 +230,7 @@ func _on_door() -> void:
 func _give_mira_phone(locked := true) -> void:
 	if locked:
 		Save.store("mira_locked")
+	Sfx.music("tension", 5.0)
 	lev_phone.visible = false
 	mira_phone = Phone.new()
 	mira_phone.setup(MiraPhone)
@@ -309,6 +315,7 @@ func _cliffhanger() -> void:
 	if not _showing_mira:
 		_switch_phone()
 	overlay.show_switch("")
+	Sfx.music("dread", 1.0)
 	await get_tree().create_timer(1.0).timeout
 	mira_phone.open_chat("n")
 	await get_tree().create_timer(1.5).timeout
@@ -321,5 +328,6 @@ func _cliffhanger() -> void:
 	await overlay.think(Texts.N_AFTER, 3.5)
 	await cinema.fade_to(1.0, 1.5)
 	Sfx.play("bell", -8.0)
+	Sfx.music("theme", 3.0)
 	await cinema.caption(Texts.CHAPTER_END, 3.0, 64)
 	await cinema.caption(Texts.TO_BE_CONTINUED, 3.0, 40)

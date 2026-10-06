@@ -163,6 +163,9 @@ func _open_chat(chat: Dictionary) -> void:
 	back.position = Vector2(20, phone.STATUS_H - 6)
 	v.add_child(back)
 	var av := _avatar(chat, 96)
+	if chat.has("photo"):
+		# Like any messenger: tap the avatar to see the profile photo.
+		av = UI.tappable(av, _open_profile.bind(chat), Color(1, 1, 1, 0))
 	av.position = Vector2(110, phone.STATUS_H + 18)
 	v.add_child(av)
 	var name := UI.label(chat["name"], 42, TEXT, UI.sans(600))
@@ -211,6 +214,35 @@ func _open_chat(chat: Dictionary) -> void:
 		_scroll_to_end(v))
 	phone.push(v)
 	_scroll_to_end(v)
+
+
+func _open_profile(chat: Dictionary) -> void:
+	phone.emit_viewed("profile:" + chat["id"])
+	var v := Control.new()
+	v.add_child(UI.full(UI.rect(Color.BLACK)))
+	var img := TextureRect.new()
+	img.texture = load(chat["photo"])
+	img.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	img.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	img.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	img.set_anchors_preset(Control.PRESET_FULL_RECT)
+	img.offset_top = phone.STATUS_H + 130
+	img.offset_bottom = -60
+	v.add_child(img)
+	var back := UI.text_button("‹", 90, BLUE, phone.pop, UI.sans(300))
+	back.position = Vector2(20, phone.STATUS_H - 6)
+	v.add_child(back)
+	var name := UI.label(chat["name"], 42, TEXT, UI.sans(600))
+	name.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	name.offset_top = phone.STATUS_H + 20
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(name)
+	var sub := UI.label("Фото профиля", 30, SUB)
+	sub.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	sub.offset_top = phone.STATUS_H + 72
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(sub)
+	phone.push(v)
 
 
 ## Conversations open at the newest message, like a real messenger.

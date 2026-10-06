@@ -1,8 +1,16 @@
 extends Node
-## Procedural sound: an endless rain bed plus synthesized phone and door sounds.
-## Nothing here needs audio files, so the prototype ships without assets.
+## Procedural sound: an endless rain bed plus synthesized phone and door sounds,
+## and the music tracks in assets/audio/music (made by tools/music/make_music.py).
 
 const RATE := 22050
+const MUSIC := {
+	"theme": preload("res://assets/audio/music/theme.ogg"),
+	"lonely": preload("res://assets/audio/music/lonely.ogg"),
+	"tension": preload("res://assets/audio/music/tension.ogg"),
+	"dread": preload("res://assets/audio/music/dread.ogg"),
+}
+## How loud music sits under the rain and the phone sounds.
+const MUSIC_DB := -10.0
 
 ## 0..1, how loud the rain is. Indoors it is muffled, outside it pours.
 var rain_level := 0.5
@@ -16,6 +24,9 @@ var _lp := 0.0
 var _lp2 := 0.0
 var _drops := 0.0
 var _time := 0.0
+## Two players so one track can fade out while the next fades in.
+var _music: Array[AudioStreamPlayer] = []
+var _current := ""
 
 
 func _ready() -> void:
@@ -32,6 +43,14 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
+
+	for i in 2:
+		var m := AudioStreamPlayer.new()
+		m.volume_db = -80.0
+		add_child(m)
+		_music.append(m)
+	for key in ["theme", "lonely", "tension"]:
+		(MUSIC[key] as AudioStreamOggVorbis).loop = true
 
 	var gen := AudioStreamGenerator.new()
 	gen.mix_rate = RATE
@@ -55,6 +74,27 @@ func play(sound: String, volume_db := 0.0, pitch := 1.0) -> void:
 			p.pitch_scale = pitch
 			p.play()
 			return
+
+
+## Crossfade to a music track ("" for silence). Looping tracks keep playing;
+## "dread" plays once.
+func music(track: String, fade := 2.5, volume_db := MUSIC_DB) -> void:
+	if track == _current:
+		return
+	_current = track
+	var old: AudioStreamPlayer = _music[0]
+	var new: AudioStreamPlayer = _music[1]
+	_music.reverse()
+	if old.playing:
+		var out := create_tween()
+		out.tween_property(old, "volume_db", -80.0, fade).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		out.tween_callback(old.stop)
+	if track == "":
+		return
+	new.stream = MUSIC[track]
+	new.volume_db = -40.0
+	new.play()
+	create_tween().tween_property(new, "volume_db", volume_db, fade).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 func _process(_delta: float) -> void:

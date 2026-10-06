@@ -4,7 +4,8 @@ extends RefCounted
 ## Chapter 1 reads like a case against Timur; every later twist already has a
 ## clue in here, so a second playthrough rewards a careful eye:
 ## the ticket screenshot (Timur was on stage), Dasha's deleted messages,
-## "отправить до 11-го" (the parcel), the mother's "дача" and "Олег Викторович",
+## "отправить до 11-го" (the parcel), the mother's "дача", "гости" and
+## "Олег Викторович", the coat and fringed scarf on her profile photo (Arseny's),
 ## the ninth person on the course photo and the locked note «В.А.».
 
 const OWNER := "Мира"
@@ -34,7 +35,7 @@ const APPS := [
 
 ## A row whose who is "deleted" was erased by the sender; only a trace is left.
 const CHATS := [
-	{"id": "timur", "name": "Тимур", "color": Color(0.45, 0.35, 0.3), "avatar": "res://assets/art/mira/avatar_timur.jpg",
+	{"id": "timur", "name": "Тимур", "color": Color(0.45, 0.35, 0.3), "avatar": "res://assets/art/mira/avatar_timur.jpg", "photo": "res://assets/art/mira/timur.jpg",
 	"unread": 8, "status": "был в сети 3 минуты назад", "messages": [
 		["day", "10 октября", ""],
 		["them", "Завтра в восемь. Ты придёшь или нет?", "22:10"],
@@ -57,7 +58,7 @@ const CHATS := [
 		["day", "Сегодня", ""],
 		["them", "прости. пожалуйста. просто скажи что ты в порядке", "22:02"],
 	]},
-	{"id": "dasha", "name": "Даша", "color": Color(0.6, 0.45, 0.35), "avatar": "res://assets/art/mira/avatar_dasha.jpg",
+	{"id": "dasha", "name": "Даша", "color": Color(0.6, 0.45, 0.35), "avatar": "res://assets/art/mira/avatar_dasha.jpg", "photo": "res://assets/art/mira/dasha.jpg",
 	"unread": 5, "status": "была в сети 5 минут назад", "messages": [
 		["day", "10 октября", ""],
 		["them", "ты точно решила?", "23:40"],
@@ -80,6 +81,7 @@ const CHATS := [
 		["them", "МИРА ОТВЕТЬ", "23:30"],
 	]},
 	{"id": "mom", "name": "Мама", "color": Color(0.75, 0.5, 0.6), "unread": 17,
+	"avatar": "res://assets/art/mira/avatar_mom.jpg", "photo": "res://assets/art/mira/mom_profile.jpg",
 	"status": "в сети", "messages": [
 		["day", "11 октября", ""],
 		["them", "Ты куда на ночь глядя?", "18:04"],
