@@ -1,14 +1,17 @@
-name: Android APK
+name: Build game
 
 on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   GODOT_VERSION: 4.7.2
 
 jobs:
-  apk:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,8 +36,8 @@ jobs:
           unzip -o -q godot.zip -d ~/godot
           tpl=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
           mkdir -p "$tpl" /tmp/tpl
-          unzip -o -q templates.tpz -d /tmp/tpl
-          mv /tmp/tpl/templates/android_* "$tpl"/
+          unzip -o -q templates.tpz 'templates/android_*' 'templates/web*' 'templates/version.txt' -d /tmp/tpl
+          mv /tmp/tpl/templates/* "$tpl"/
           echo "GODOT=$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
 
       - name: Configure Android export
@@ -53,7 +56,6 @@ jobs:
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOF
-          cat ~/.config/godot/editor_settings-*.tres
 
       - name: Import project
         run: $GODOT --headless --import
@@ -62,10 +64,29 @@ jobs:
         run: |
           mkdir -p build
           $GODOT --headless --export-debug "Android" build/nur-debug.apk
-          ls -la build
           test -s build/nur-debug.apk
+
+      - name: Export web build
+        run: |
+          mkdir -p build/web
+          $GODOT --headless --export-release "Web" build/web/index.html
+          test -s build/web/index.pck
+          touch build/web/.nojekyll
+          ls -la build/web
 
       - uses: actions/upload-artifact@v4
         with:
           name: nur-debug-apk
           path: build/nur-debug.apk
+
+      # The web build is what plays on iPhone: it is published to the gh-pages
+      # branch, which GitHub Pages serves at https://<owner>.github.io/<repo>/.
+      - name: Publish web build to gh-pages
+        run: |
+          cd build/web
+          git init -q -b gh-pages
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Web build of ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

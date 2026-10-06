@@ -4,6 +4,7 @@ extends CanvasLayer
 
 const TEXT := Color(0.93, 0.94, 0.96)
 const BAR := 140.0
+const ROTATE_HINT := "Поверни телефон горизонтально"
 
 var _fade: ColorRect
 var _top: ColorRect
@@ -14,6 +15,7 @@ var _footer: Label
 var _title: Label
 var _subtitle: Label
 var _tapped := false
+var _rotate: Label
 var _blink := 0.0
 
 
@@ -39,6 +41,17 @@ func _ready() -> void:
 	_footer.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_footer.offset_bottom = -170.0
 	_footer.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+
+	_rotate = _label(72, 0.0)
+	_rotate.offset_left = 40.0
+	_rotate.offset_right = -40.0
+	_rotate.text = ROTATE_HINT
+	var back := ColorRect.new()
+	back.set_anchors_preset(Control.PRESET_FULL_RECT)
+	back.color = Color.BLACK
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	back.show_behind_parent = true
+	_rotate.add_child(back)
 
 
 func _bar(preset: Control.LayoutPreset) -> ColorRect:
@@ -81,6 +94,8 @@ func _input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
+	var view := get_viewport().get_visible_rect().size
+	_rotate.modulate.a = 1.0 if view.y > view.x else 0.0
 	if _footer.modulate.a > 0.0 and _footer.has_meta("blink"):
 		_blink += delta
 		_footer.modulate.a = 0.45 + 0.4 * sin(_blink * 2.5)

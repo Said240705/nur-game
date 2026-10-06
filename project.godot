@@ -19,6 +19,11 @@ boot_splash/bg_color=Color(0, 0, 0, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
 
+[audio]
+
+; Procedural sounds are built at runtime and cannot be pre-sampled by the browser.
+general/default_playback_type.web=0
+
 [autoload]
 
 Sfx="*res://scripts/audio/sfx.gd"

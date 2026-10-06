@@ -2,7 +2,7 @@ extends Node
 ## Developer tool: drives the game without a player and saves screenshots.
 ## Only loaded when the game is started with user arguments, e.g.
 ##   godot --path . -- --shots=/tmp/shots --mode=game
-## Modes: intro, game, upgrade, memory, survive (headless soak test).
+## Modes: intro, title, game, upgrade, memory, survive (headless soak test).
 
 var _main: Node
 var _dir := "user://shots"
@@ -27,6 +27,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	_process_joystick()
 
 
 ## Stands in for the touch joystick: Nur walks in slow circles.
@@ -47,6 +48,20 @@ func _run() -> void:
 			await _shot("game_start")
 			await _wait(20.0)
 			await _shot("game_20s")
+			_main.game.nur.sparks = 3
+			_main.game.level = 5
+			await _wait(16.0)
+			await _shot("game_36s")
+		"title":
+			_main.cinema.set_black(0.0)
+			_main.title()
+			await _wait(6.0)
+			await _shot("title")
+			_main.cinema._tapped = true
+			await _wait(1.5)
+			await _shot("title_blend")
+			await _wait(3.0)
+			await _shot("title_follow")
 		"upgrade":
 			_start()
 			await _wait(3.0)
@@ -59,24 +74,13 @@ func _run() -> void:
 			_main._on_level_up(10)
 			await _wait(5.0)
 			await _shot("memory")
-		"probe":
-			_start()
-			var g: Node2D = _main.game
-			var pulses := [0]
-			g.nur.pulsed.connect(func(_o, _r, _d): pulses[0] += 1)
-			await _wait(25.0)
-			var near := 0
-			var dmin := 99999.0
-			for e in g.get_child(4).get_children():
-				dmin = minf(dmin, e.global_position.distance_to(g.nur.global_position))
-			print("pulses=%d enemies=%d nearest=%d motes=%d xp=%d light=%d" % [pulses[0], g.get_child(4).get_child_count(), dmin, g.get_child(3).get_child_count(), g.xp, g.nur.light])
 		"survive":
 			_start()
 			_main.game.nur.max_light = 100000.0
 			_main.game.nur.light = 100000.0
 			for i in 6:
 				await _wait(30.0)
-				print("t=%ds enemies=%d level=%d fps=%d" % [(i + 1) * 30, _main.game.get_child(4).get_child_count(), _main.game.level, Engine.get_frames_per_second()])
+				print("t=%ds enemies=%d level=%d fps=%d" % [(i + 1) * 30, _main.game.enemy_count(), _main.game.level, Engine.get_frames_per_second()])
 				if get_tree().paused:
 					_main.upgrades._pick(_main.game.roll_upgrades(1)[0])
 	get_tree().quit()
@@ -86,6 +90,12 @@ func _start() -> void:
 	_main.cinema.set_black(0.0)
 	_main.start_game()
 	_main.game.joystick = self
+
+
+## Stands in for the touch joystick while the title hands over to gameplay.
+func _process_joystick() -> void:
+	if _main.game and _main.game.joystick != self:
+		_main.game.joystick = self
 
 
 func _wait(seconds: float) -> void:

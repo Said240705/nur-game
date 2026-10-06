@@ -1,44 +1,56 @@
-extends Node2D
+extends Node3D
 ## A mote of memory left by a released Faceless. Drifts to Nur when she is near.
 
 signal collected(value: int)
 
-var target: Node2D
+const B := preload("res://scripts/world/builders.gd")
+
+static var _mesh: Mesh
+static var _mat: Material
+
+var target: Node3D
 var value := 1
 
 var _t := randf() * TAU
-var _vel := Vector2.ZERO
-var _pop := Vector2.ZERO
+var _vel := Vector3.ZERO
+var _pop := Vector3.ZERO
 var _attracted := false
+var _gem: MeshInstance3D
 
 
 func _ready() -> void:
-	_pop = Vector2.from_angle(randf() * TAU) * randf_range(40.0, 110.0)
+	if _mesh == null:
+		var s := SphereMesh.new()
+		s.radial_segments = 4
+		s.rings = 2
+		s.radius = 0.13
+		s.height = 0.34
+		_mesh = s
+		_mat = B.emissive(Color(1.0, 0.82, 0.55), 5.0)
+	_gem = MeshInstance3D.new()
+	_gem.mesh = _mesh
+	_gem.material_override = _mat
+	_gem.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_gem.scale = Vector3.ONE * (1.0 + value * 0.08)
+	add_child(_gem)
+	var a := randf() * TAU
+	_pop = Vector3(cos(a), 0, sin(a)) * randf_range(1.0, 2.4)
 
 
 func _process(delta: float) -> void:
 	_t += delta
 	position += _pop * delta * 3.0
-	_pop = _pop.lerp(Vector2.ZERO, minf(1.0, delta * 5.0))
-	var to: Vector2 = target.global_position + Vector2(0, -34) - global_position
+	_pop = _pop.lerp(Vector3.ZERO, minf(1.0, delta * 5.0))
+	_gem.position.y = 0.9 + sin(_t * 3.0) * 0.12
+	_gem.rotation.y += delta * 2.5
+	var to: Vector3 = target.global_position + Vector3(0, 0.1, 0) - global_position
+	to.y = 0.0
 	var d := to.length()
 	if _attracted or d < target.pickup_radius:
 		_attracted = true
-		_vel = _vel.lerp(to.normalized() * 950.0, minf(1.0, delta * 6.0))
+		_vel = _vel.lerp(to.normalized() * 18.0, minf(1.0, delta * 6.0))
 		position += _vel * delta
-	if d < 26.0:
+	if d < 0.5:
 		collected.emit(value)
 		Sfx.play("shard", -14.0, randf_range(0.95, 1.2))
 		queue_free()
-		return
-	queue_redraw()
-
-
-func _draw() -> void:
-	var bob := Vector2(0, sin(_t * 3.0) * 4.0 - 18.0)
-	var size := 6.0 + value * 0.6
-	var c := Color(1.0, 0.86, 0.6)
-	draw_circle(bob, size * 2.6, Color(c, 0.12))
-	draw_circle(bob, size * 1.5, Color(c, 0.25))
-	var d := PackedVector2Array([bob + Vector2(0, -size), bob + Vector2(size * 0.65, 0), bob + Vector2(0, size), bob + Vector2(-size * 0.65, 0)])
-	draw_colored_polygon(d, Color(1.0, 0.95, 0.85))
