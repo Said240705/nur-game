@@ -31,7 +31,7 @@ func _process(delta: float) -> void:
 
 ## Stands in for the touch joystick: Nur walks in slow circles.
 func get_vector() -> Vector2:
-	return Vector2.from_angle(_t * 0.5) * 0.8
+	return Vector2.from_angle(_t * 0.5) * 0.25
 
 
 func _run() -> void:
@@ -59,6 +59,17 @@ func _run() -> void:
 			_main._on_level_up(10)
 			await _wait(5.0)
 			await _shot("memory")
+		"probe":
+			_start()
+			var g: Node2D = _main.game
+			var pulses := [0]
+			g.nur.pulsed.connect(func(_o, _r, _d): pulses[0] += 1)
+			await _wait(25.0)
+			var near := 0
+			var dmin := 99999.0
+			for e in g.get_child(4).get_children():
+				dmin = minf(dmin, e.global_position.distance_to(g.nur.global_position))
+			print("pulses=%d enemies=%d nearest=%d motes=%d xp=%d light=%d" % [pulses[0], g.get_child(4).get_child_count(), dmin, g.get_child(3).get_child_count(), g.xp, g.nur.light])
 		"survive":
 			_start()
 			_main.game.nur.max_light = 100000.0
