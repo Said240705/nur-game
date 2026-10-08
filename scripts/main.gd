@@ -1,40 +1,69 @@
 extends Node
-## ЗОЛОТАЯ ЖИЛА: the mine, the coin counter and boost at the top, the upgrade
-## panel, first-steps hints, saving and the coins earned while away.
+## ОТ НУЛЯ ДО МИЛЛИАРДЕРА: the header with money and status, three tabs
+## (work, business, property), life events with risky choices, hot deals on a
+## timer, new statuses, bankruptcy, saving and money earned while away.
 
-const Mine := preload("res://scripts/game/mine.gd")
-const World := preload("res://scripts/game/world.gd")
-const Sheet := preload("res://scripts/game/sheet.gd")
-const Eco := preload("res://scripts/game/economy.gd")
+const State := preload("res://scripts/game/state.gd")
+const Data := preload("res://scripts/game/data.gd")
+const Events := preload("res://scripts/game/events.gd")
 const UI := preload("res://scripts/ui/ui.gd")
+const Icons := preload("res://scripts/ui/icons.gd")
 const Save := preload("res://scripts/save.gd")
+const TouchScroll := preload("res://scripts/ui/touch_scroll.gd")
 
-const HUD_H := 250.0
-const SAVE_EVERY := 3.0
+const BG := Color("#0d0e15")
+const CARD := Color("#171a26")
+const GREEN := Color("#3ee08f")
+const RED := Color("#ff5c6c")
+const HEADER_H := 380.0
+const TABS_H := 190.0
+## Seconds between life events and between hot deals (random within the range).
+const EVENT_GAP := Vector2(22, 40)
+const DEAL_GAP := Vector2(45, 80)
+const DEAL_TIME := 15.0
+## Money while away: at most two hours count, at half the usual rate.
+const AWAY_CAP := 7200.0
+const AWAY_RATE := 0.5
 
-var mine: RefCounted
+var s: RefCounted
 var root: Control
-var world: World
-var sheet: Sheet
 
-var _coins: Label
-var _income: Label
-var _hint: Label
-var _boost: Button
-var _boost_label: Label
-var _hud: Control
+var _rank: Label
+var _day: Label
+var _cash: Label
+var _flow: Label
+var _bar: Control
+var _bar_label: Label
+var _pages := {}
+var _tab_buttons := {}
+var _tab := "work"
+var _refreshers: Array = []
+var _deal_box: Control
+var _deal := {}
+var _modal: Control
+var _work_btn: Control
+var _job: Label
+var _pay: Label
+var _goal: Label
+var _tip: Label
+
+var _day_t := 0.0
+var _event_t := 25.0
+var _deal_t := 40.0
 var _save_t := 0.0
-var _last_unix := 0.0
+var _refresh_t := 0.0
 var _shown := 0.0
-var _toggles: Array[Button] = []
+var _last_event := ""
+var _rank_seen := 0
+var _last_unix := 0.0
 
 
 func _ready() -> void:
 	var dev := OS.get_cmdline_user_args()
-	# Developer runs start from a fresh mine and never touch the real save.
-	var saved: Dictionary = {} if dev.size() > 0 else Save.get_value("mine", {})
-	mine = Mine.from_dict(saved) if not saved.is_empty() else Mine.new()
-	_shown = mine.coins
+	var saved: Dictionary = {} if dev.size() > 0 else Save.get_value("life", {})
+	s = State.from_dict(saved) if not saved.is_empty() else State.new()
+	_shown = s.cash
+	_rank_seen = s.rank()
 	Sfx.sound_on = Save.get_value("sound", true)
 	Sfx.music_on = Save.get_value("music", true)
 
@@ -42,47 +71,57 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	world = World.new()
-	world.mine = mine
-	world.open_station.connect(_open_sheet)
-	world.buy_shaft.connect(_buy_shaft)
-	world.tapped_nothing.connect(func() -> void:
-		if sheet.is_open():
-			sheet.close())
-	root.add_child(world)
-	world.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_build_hud()
-	sheet = Sheet.new()
-	sheet.mine = mine
-	sheet.visible = false
-	sheet.closed.connect(func() -> void: world.bottom_inset = 0.0)
-	root.add_child(sheet)
-	sheet.size = Vector2(1080, Sheet.HEIGHT)
-
-	_last_unix = Mine.now()
+	var bg := Control.new()
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.draw.connect(_draw_background.bind(bg))
+	root.add_child(bg)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_build_pages()
+	_build_header()
+	_build_tabs()
+	_build_deal()
+	_show_tab("work")
+	_last_unix = Time.get_unix_time_from_system()
 	if not saved.is_empty():
-		_welcome_back(Mine.now() - float(saved.get("saved_at", Mine.now())))
-
+		_welcome_back(_last_unix - float(saved.get("saved_at", _last_unix)))
 	if dev.size() > 0:
 		var tool: Node = load("res://scripts/dev/autoshot.gd").new()
 		tool.setup(self, dev)
 		add_child(tool)
 
 
+# --- Clock ----------------------------------------------------------------------
+
 func _process(delta: float) -> void:
-	# A long gap means the page or app was in the background: count it as time away.
-	var unix := Mine.now()
+	var unix := Time.get_unix_time_from_system()
 	var gap := unix - _last_unix
 	_last_unix = unix
-	if gap > 10.0:
+	if gap > 30.0 and not s.bankrupt:
 		_welcome_back(gap)
-	mine.tick(minf(delta, 0.25))
-	for e in mine.events:
-		_on_event(e)
-	mine.events.clear()
-	_update_hud(delta)
+	_update_header(delta)
+	_refresh_t -= delta
+	if _refresh_t <= 0.0:
+		_refresh_t = 0.25
+		for r in _refreshers:
+			r.call()
+	if _modal or s.bankrupt:
+		return
+	_day_t += delta
+	while _day_t >= Data.DAY:
+		_day_t -= Data.DAY
+		var change: float = s.next_day()
+		if absf(change) >= 1.0:
+			_float(("+" if change > 0.0 else "") + Data.money(change), Vector2(540, 250), GREEN if change > 0.0 else RED, 40)
+		if s.bankrupt:
+			_show_bankrupt()
+			return
+		_check_rank()
+	_event_t -= delta
+	if _event_t <= 0.0:
+		_show_event()
+	_tick_deal(delta)
 	_save_t += delta
-	if _save_t >= SAVE_EVERY:
+	if _save_t >= 2.0:
 		_save()
 
 
@@ -93,91 +132,129 @@ func _notification(what: int) -> void:
 
 func _save() -> void:
 	_save_t = 0.0
-	if mine and OS.get_cmdline_user_args().is_empty():
-		Save.set_value("mine", mine.to_dict())
+	if s and OS.get_cmdline_user_args().is_empty():
+		Save.set_value("life", s.to_dict())
+		Save.set_value("record", maxf(Save.get_value("record", 0.0), s.best_worth))
 
 
-func _on_event(e: Dictionary) -> void:
-	match e["kind"]:
-		"deposit":
-			var k: int = e["at"]
-			var at := Vector2(World.CRATE_X + 52, world.shaft_top(k) + World.TUNNEL_BOTTOM - 110)
-			if not mine.shafts[k]["manager"]:
-				world.float_text("+" + Eco.short(e["amount"]), at, Eco.ORES[k]["color"].lightened(0.3), 36)
-			if _on_screen(at):
-				Sfx.play("drop", -12.0)
-		"lift":
-			Sfx.play("ding", -10.0)
-		"sold":
-			var at := Vector2(900, world.ground() - 280)
-			world.float_text("+" + Eco.short(e["amount"]), at, UI.GOLD, 54)
-			world.coin_burst(at + Vector2(0, 40), 8)
-			Sfx.play("coin", -4.0)
+func _check_rank() -> void:
+	var r: int = s.rank()
+	if r > _rank_seen:
+		_rank_seen = r
+		_show_rank_up(r)
+		_rebuild_pages()
 
 
-func _on_screen(content_pos: Vector2) -> bool:
-	var y := content_pos.y - world.scroll
-	return y > 0.0 and y < root.size.y
+# --- Background and header -------------------------------------------------------
+
+func _draw_background(c: Control) -> void:
+	c.draw_rect(Rect2(Vector2.ZERO, c.size), BG)
+	# A warm glow behind the money, like light on gold.
+	for i in 8:
+		var k := 1.0 - i / 8.0
+		c.draw_circle(Vector2(540, 160), 700 * k, Color(0.96, 0.77, 0.32, 0.012))
 
 
-# --- HUD ------------------------------------------------------------------------
-
-func _build_hud() -> void:
-	_hud = Control.new()
-	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(_hud)
-	_hud.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	_hud.offset_bottom = HUD_H
-	var shade := ColorRect.new()
+func _build_header() -> void:
+	var h := Control.new()
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(h)
+	h.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	h.offset_bottom = HEADER_H
+	var shade := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.07, 0.07, 0.11, 0.97)
+	sb.corner_radius_bottom_left = 50
+	sb.corner_radius_bottom_right = 50
+	sb.shadow_color = Color(0, 0, 0, 0.45)
+	sb.shadow_size = 30
+	shade.add_theme_stylebox_override("panel", sb)
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	shade.color = Color(0.06, 0.04, 0.14, 0.82)
-	_hud.add_child(shade)
+	h.add_child(shade)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var coin := Control.new()
-	coin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	coin.draw.connect(_draw_coin.bind(coin))
-	_hud.add_child(coin)
-	coin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	_coins = UI.label("0", 96, Color.WHITE, 900)
-	_coins.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	UI.glow(_coins, Color(1, 0.75, 0.2, 0.45), 18)
-	_coins.position = Vector2(150, 40)
-	_coins.size = Vector2(560, 110)
-	_hud.add_child(_coins)
-	_income = UI.label("", 38, Color("#7dffb8"), 700)
-	_income.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_income.position = Vector2(154, 150)
-	_income.size = Vector2(560, 50)
-	_hud.add_child(_income)
+	_rank = _at(h, UI.label("", 40, UI.GOLD, 800), Vector2(60, 40), Vector2(600, 56), HORIZONTAL_ALIGNMENT_LEFT)
+	_day = _at(h, UI.label("", 36, UI.SUB, 600), Vector2(560, 40), Vector2(260, 56), HORIZONTAL_ALIGNMENT_RIGHT)
+	_cash = _at(h, UI.label("", 112, Color.WHITE, 900), Vector2(56, 96), Vector2(900, 130), HORIZONTAL_ALIGNMENT_LEFT)
+	UI.glow(_cash, Color(0.96, 0.77, 0.32, 0.35), 20)
+	_flow = _at(h, UI.label("", 38, GREEN, 700), Vector2(60, 226), Vector2(960, 50), HORIZONTAL_ALIGNMENT_LEFT)
+	_bar = Control.new()
+	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bar.position = Vector2(60, 300)
+	_bar.size = Vector2(960, 22)
+	_bar.draw.connect(_draw_bar)
+	h.add_child(_bar)
+	_bar_label = _at(h, UI.label("", 30, UI.SUB, 600), Vector2(60, 326), Vector2(960, 40), HORIZONTAL_ALIGNMENT_LEFT)
+	_build_toggles(h)
 
-	# Boost: double income for two minutes, then a rest.
-	_boost = Button.new()
-	_boost.focus_mode = Control.FOCUS_NONE
-	_boost.position = Vector2(890, 34)
-	_boost.size = Vector2(150, 150)
-	_boost.add_theme_font_override("font", UI.font(900))
-	_boost.add_theme_font_size_override("font_size", 54)
-	_boost.text = "×2"
-	_boost.pressed.connect(func() -> void:
-		if mine.start_boost():
-			Sfx.play("boost")
-		else:
-			Sfx.play("no", -6.0))
-	_hud.add_child(_boost)
-	_boost_label = UI.label("", 28, UI.SUB, 700)
-	_boost_label.position = Vector2(860, 186)
-	_boost_label.size = Vector2(210, 40)
-	_hud.add_child(_boost_label)
 
+func _at(parent: Control, l: Label, pos: Vector2, size: Vector2, align: HorizontalAlignment) -> Label:
+	l.position = pos
+	l.size = size
+	l.horizontal_alignment = align
+	parent.add_child(l)
+	return l
+
+
+func _update_header(delta: float) -> void:
+	_shown = lerpf(_shown, s.cash, 1.0 - exp(-12.0 * delta))
+	if absf(_shown - s.cash) < 1.0:
+		_shown = s.cash
+	_cash.text = Data.money(_shown)
+	_cash.add_theme_color_override("font_color", RED if s.cash < 0.0 else Color.WHITE)
+	var r: int = s.rank()
+	_rank.text = Data.RANKS[r]["name"]
+	_day.text = "День %d" % s.day
+	if s.cash < 0.0:
+		_flow.text = "ДОЛГ! До банкротства %d дн." % (Data.DEBT_DAYS - s.debt_days)
+		_flow.add_theme_color_override("font_color", RED)
+	else:
+		var inc: float = s.daily_income()
+		var cost: float = s.daily_costs()
+		var text := "+%s в день" % Data.money(inc) if inc > 0.0 else "Пока нет дохода — работай и покупай бизнес"
+		if cost > 0.0:
+			text += "   −%s расходы" % Data.money(cost)
+		if s.boost() != 1.0:
+			text += "   ×%.2f" % s.boost()
+		_flow.text = text
+		_flow.add_theme_color_override("font_color", GREEN if inc >= cost else Color("#ffb347"))
+	if r + 1 < Data.RANKS.size():
+		var next: Dictionary = Data.RANKS[r + 1]
+		_bar_label.text = "Капитал %s  ·  до статуса «%s» — %s" % [Data.money(s.worth()), next["name"], Data.money(next["worth"])]
+	else:
+		_bar_label.text = "Капитал %s  ·  вершина достигнута!" % Data.money(s.worth())
+	_bar.queue_redraw()
+
+
+func _draw_bar() -> void:
+	var r: int = s.rank()
+	var k := 1.0
+	if r + 1 < Data.RANKS.size():
+		var lo: float = Data.RANKS[r]["worth"]
+		var hi: float = Data.RANKS[r + 1]["worth"]
+		k = clampf((s.worth() - lo) / (hi - lo), 0.0, 1.0)
+	var back := StyleBoxFlat.new()
+	back.bg_color = Color(1, 1, 1, 0.08)
+	back.set_corner_radius_all(11)
+	_bar.draw_style_box(back, Rect2(Vector2.ZERO, _bar.size))
+	if k > 0.0:
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = UI.GOLD
+		fill.set_corner_radius_all(11)
+		fill.shadow_color = Color(0.96, 0.77, 0.32, 0.5)
+		fill.shadow_size = 10
+		_bar.draw_style_box(fill, Rect2(Vector2.ZERO, Vector2(maxf(22.0, _bar.size.x * k), _bar.size.y)))
+
+
+func _build_toggles(h: Control) -> void:
 	for kind in ["music", "sound"]:
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
-		b.size = Vector2(92, 92)
-		b.position = Vector2(770, 34 if kind == "music" else 136)
+		b.size = Vector2(84, 84)
+		b.position = Vector2(850 if kind == "music" else 950, 26)
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(1, 1, 1, 0.08)
-		sb.set_corner_radius_all(46)
+		sb.bg_color = Color(1, 1, 1, 0.07)
+		sb.set_corner_radius_all(42)
 		for st in ["normal", "hover", "pressed", "focus"]:
 			b.add_theme_stylebox_override(st, sb)
 		b.draw.connect(_draw_toggle.bind(b, kind))
@@ -190,152 +267,643 @@ func _build_hud() -> void:
 				Save.set_value("music", Sfx.music_on)
 			Sfx.play("click")
 			b.queue_redraw())
-		_hud.add_child(b)
-		_toggles.append(b)
-
-	_hint = UI.label("", 38, Color.WHITE, 700)
-	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	var hb := StyleBoxFlat.new()
-	hb.bg_color = Color(0.1, 0.06, 0.2, 0.9)
-	hb.set_corner_radius_all(30)
-	hb.content_margin_left = 30
-	hb.content_margin_right = 30
-	hb.content_margin_top = 16
-	hb.content_margin_bottom = 16
-	hb.border_color = Color(1, 0.83, 0.28, 0.6)
-	hb.set_border_width_all(2)
-	_hint.add_theme_stylebox_override("normal", hb)
-	root.add_child(_hint)
-
-
-func _update_hud(delta: float) -> void:
-	# The counter rolls instead of jumping.
-	_shown = lerpf(_shown, mine.coins, 1.0 - exp(-10.0 * delta))
-	if absf(_shown - mine.coins) < 1.0 or mine.coins < _shown:
-		_shown = mine.coins
-	_coins.text = Eco.short(_shown)
-	var inc: float = mine.income() * mine.boost_factor()
-	_income.text = "+%s в сек" % Eco.short(inc) if inc > 0.0 else ""
-	var now := Mine.now()
-	var sb := StyleBoxFlat.new()
-	sb.set_corner_radius_all(75)
-	if now < mine.boost_until:
-		sb.bg_color = Color("#ff5fa2")
-		sb.shadow_color = Color(1, 0.4, 0.7, 0.6)
-		sb.shadow_size = 26
-		_boost_label.text = "ещё " + _clock(mine.boost_until - now)
-	elif now < mine.boost_ready_at:
-		sb.bg_color = Color(1, 1, 1, 0.1)
-		_boost_label.text = "через " + _clock(mine.boost_ready_at - now)
-	else:
-		sb.bg_color = Color("#ff5fa2")
-		sb.shadow_color = Color(1, 0.4, 0.7, 0.4 + 0.3 * sin(now * 4.0))
-		sb.shadow_size = 22
-		_boost_label.text = "ускорить"
-	for st in ["normal", "hover", "pressed", "focus"]:
-		_boost.add_theme_stylebox_override(st, sb)
-	_update_hint()
-
-
-func _clock(seconds: float) -> String:
-	var s := int(ceilf(seconds))
-	return "%d:%02d" % [s / 60, s % 60]
-
-
-## First steps, one at a time, until the first manager is hired.
-func _update_hint() -> void:
-	var text := ""
-	var any_manager: bool = mine.lift["manager"] or mine.cart["manager"] or mine.shafts.any(func(s: Dictionary) -> bool: return s["manager"])
-	if not any_manager:
-		var s0: Dictionary = mine.shafts[0]
-		if mine.coins < 1.0 and s0["stock"] <= 0.0 and mine.pile <= 0.0 and mine.lift["load"] <= 0.0 and s0["phase"] == "idle":
-			text = "Тапни шахтёра — он накопает угля"
-		elif s0["stock"] > 0.0 and mine.lift["phase"] == "idle" and mine.lift["load"] <= 0.0:
-			text = "Тапни лифт — он поднимет уголь наверх"
-		elif mine.pile > 0.0 and mine.cart["phase"] == "idle":
-			text = "Тапни склад — уголь продастся"
-		elif mine.coins >= Eco.CART_MANAGER:
-			text = "Нажми на «Ур.» у склада и найми управляющего — он будет работать сам"
-		elif mine.coins > 0.0 and not sheet.is_open():
-			text = "Жми «Ур.» — улучшения ускоряют добычу"
-	_hint.text = text
-	_hint.visible = text != "" and not sheet.is_open()
-	_hint.size = Vector2(960, 0)
-	_hint.position = Vector2(60, root.size.y - _hint.get_combined_minimum_size().y - 70)
-
-
-func _draw_coin(c_item: Control) -> void:
-	var c := Vector2(86, 96)
-	c_item.draw_circle(c, 44, Color("#e0a815"))
-	c_item.draw_circle(c, 36, Color("#ffd447"))
-	c_item.draw_arc(c, 26, 0, TAU, 32, Color("#e0a815"), 5, true)
-	c_item.draw_circle(c + Vector2(-12, -14), 8, Color(1, 1, 1, 0.6))
+		h.add_child(b)
 
 
 func _draw_toggle(b: Button, kind: String) -> void:
 	var on: bool = Sfx.sound_on if kind == "sound" else Sfx.music_on
-	var col := Color(1, 1, 1, 0.9 if on else 0.35)
-	var c := Vector2(46, 46)
+	var col := Color(1, 1, 1, 0.85 if on else 0.3)
+	var c := Vector2(42, 42)
 	if kind == "sound":
-		b.draw_colored_polygon(PackedVector2Array([c + Vector2(-20, -8), c + Vector2(-9, -8), c + Vector2(4, -20),
-			c + Vector2(4, 20), c + Vector2(-9, 8), c + Vector2(-20, 8)]), col)
+		b.draw_colored_polygon(PackedVector2Array([c + Vector2(-18, -7), c + Vector2(-8, -7), c + Vector2(4, -18),
+			c + Vector2(4, 18), c + Vector2(-8, 7), c + Vector2(-18, 7)]), col)
 		if on:
-			b.draw_arc(c + Vector2(4, 0), 12, -0.9, 0.9, 12, col, 4, true)
-			b.draw_arc(c + Vector2(4, 0), 21, -0.9, 0.9, 16, col, 4, true)
+			b.draw_arc(c + Vector2(4, 0), 11, -0.9, 0.9, 12, col, 4, true)
+			b.draw_arc(c + Vector2(4, 0), 19, -0.9, 0.9, 16, col, 4, true)
 	else:
-		b.draw_line(c + Vector2(-8, 14), c + Vector2(-8, -18), col, 5)
-		b.draw_line(c + Vector2(12, 9), c + Vector2(12, -23), col, 5)
-		b.draw_line(c + Vector2(-8, -18), c + Vector2(12, -23), col, 7)
-		b.draw_circle(c + Vector2(-13, 14), 8, col)
-		b.draw_circle(c + Vector2(7, 9), 8, col)
+		b.draw_line(c + Vector2(-7, 12), c + Vector2(-7, -16), col, 5)
+		b.draw_line(c + Vector2(11, 8), c + Vector2(11, -20), col, 5)
+		b.draw_line(c + Vector2(-7, -16), c + Vector2(11, -20), col, 6)
+		b.draw_circle(c + Vector2(-12, 12), 7, col)
+		b.draw_circle(c + Vector2(6, 8), 7, col)
 	if not on:
-		b.draw_line(c + Vector2(-26, -26), c + Vector2(26, 26), Color(1, 0.4, 0.5, 0.9), 5)
+		b.draw_line(c + Vector2(-24, -24), c + Vector2(24, 24), Color(1, 0.4, 0.5, 0.9), 5)
 
 
-# --- Panel and purchases -----------------------------------------------------------
+# --- Tabs -------------------------------------------------------------------------
 
-func _open_sheet(id: String) -> void:
-	Sfx.play("click")
-	sheet.position = Vector2(0, root.size.y + 40)
-	sheet.open(id)
-	world.bottom_inset = Sheet.HEIGHT
+func _build_tabs() -> void:
+	var bar := Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.07, 0.07, 0.11, 0.98)
+	sb.border_color = Color(1, 1, 1, 0.06)
+	sb.border_width_top = 2
+	bar.add_theme_stylebox_override("panel", sb)
+	root.add_child(bar)
+	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bar.offset_top = -TABS_H
+	var items := [["work", "Работа"], ["biz", "Бизнес"], ["prop", "Имущество"]]
+	for i in items.size():
+		var id: String = items[i][0]
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+		b.position = Vector2(i * 360, 0)
+		b.size = Vector2(360, TABS_H)
+		for st in ["normal", "hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+		b.draw.connect(_draw_tab.bind(b, id, items[i][1]))
+		b.pressed.connect(func() -> void:
+			Sfx.play("click")
+			_show_tab(id))
+		bar.add_child(b)
+		_tab_buttons[id] = b
 
 
-func _buy_shaft() -> void:
-	if mine.open_shaft():
-		Sfx.play("fanfare")
-		world.reveal_bottom()
-		_save()
+func _draw_tab(b: Button, id: String, title: String) -> void:
+	var on := _tab == id
+	var col := UI.GOLD if on else Color(1, 1, 1, 0.45)
+	var icon: String = {"work": "coin", "biz": "bank", "prop": "house"}[id]
+	if on:
+		var glow := StyleBoxFlat.new()
+		glow.bg_color = Color(0.96, 0.77, 0.32, 0.12)
+		glow.set_corner_radius_all(40)
+		b.draw_style_box(glow, Rect2(40, 18, 280, 150))
+	Icons.glyph(b, icon, Vector2(180, 74), 0.62)
+	if not on:
+		b.draw_rect(Rect2(110, 30, 140, 90), Color(0.07, 0.07, 0.11, 0.55))
+	var f := UI.font(700)
+	var w := f.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
+	b.draw_string(f, Vector2(180 - w * 0.5, 152), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34, col)
+
+
+func _show_tab(id: String) -> void:
+	_tab = id
+	for k in _pages:
+		_pages[k].visible = k == id
+	for k in _tab_buttons:
+		_tab_buttons[k].queue_redraw()
+
+
+func _build_pages() -> void:
+	for id in ["work", "biz", "prop"]:
+		var page := Control.new()
+		page.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		root.add_child(page)
+		page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		page.offset_top = HEADER_H
+		page.offset_bottom = -TABS_H
+		_pages[id] = page
+	_rebuild_pages()
+
+
+func _rebuild_pages() -> void:
+	_refreshers.clear()
+	for id in _pages:
+		for c in _pages[id].get_children():
+			c.queue_free()
+	_build_work(_pages["work"])
+	_build_list(_pages["biz"], true)
+	_build_list(_pages["prop"], false)
+
+
+# --- Work -------------------------------------------------------------------------
+
+func _build_work(page: Control) -> void:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	page.add_child(box)
+	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.offset_left = 50
+	box.offset_right = -50
+	box.offset_top = 50
+	_job = UI.label("", 50, Color.WHITE, 800)
+	box.add_child(_job)
+	_pay = UI.label("", 38, GREEN, 700)
+	box.add_child(_pay)
+	var holder := CenterContainer.new()
+	holder.custom_minimum_size = Vector2(0, 560)
+	box.add_child(holder)
+	_work_btn = Control.new()
+	_work_btn.custom_minimum_size = Vector2(500, 500)
+	_work_btn.pivot_offset = Vector2(250, 250)
+	_work_btn.draw.connect(_draw_work_button.bind(_work_btn))
+	holder.add_child(_work_btn)
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+	for st in ["normal", "hover", "pressed", "focus"]:
+		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	_work_btn.add_child(b)
+	b.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	b.pressed.connect(_on_work)
+	_goal = UI.label("", 36, UI.SUB, 600)
+	_goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_goal)
+	var tip_card := PanelContainer.new()
+	tip_card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.25)))
+	_tip = UI.label("", 36, Color.WHITE, 600)
+	_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip_card.add_child(_tip)
+	box.add_child(tip_card)
+	_refreshers.append(_refresh_work)
+	_refresh_work()
+
+
+func _draw_work_button(btn: Control) -> void:
+	var c := btn.size * 0.5
+	for i in 10:
+		var k := 1.0 - i / 10.0
+		btn.draw_circle(c, 250 * k, Color(0.96, 0.77, 0.32, 0.03))
+	btn.draw_circle(c, 200, Color("#c8921d"))
+	btn.draw_circle(c + Vector2(0, -8), 192, UI.GOLD)
+	btn.draw_circle(c + Vector2(-50, -70), 60, Color(1, 1, 1, 0.18))
+	btn.draw_arc(c + Vector2(0, -8), 150, 0, TAU, 64, Color("#c8921d"), 10, true)
+	var f := UI.font(900)
+	var t := "$"
+	var w := f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 210).x
+	btn.draw_string(f, c + Vector2(-w * 0.5, 66), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 210, Color("#8a5a0a"))
+
+
+func _on_work() -> void:
+	var pay: float = s.work()
+	Sfx.play("coin", -10.0, randf_range(0.95, 1.1))
+	Input.vibrate_handheld(10)
+	var tw := _work_btn.create_tween()
+	_work_btn.scale = Vector2(0.92, 0.92)
+	tw.tween_property(_work_btn, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	var at := _work_btn.get_global_rect().get_center() + Vector2(randf_range(-110, 110), randf_range(-150, -90))
+	_float("+" + Data.money(pay), at, UI.GOLD, 60)
+
+
+func _refresh_work() -> void:
+	var r: Dictionary = Data.RANKS[s.rank()]
+	_job.text = r["job"]
+	_pay.text = "+%s за касание" % Data.money(r["pay"])
+	_goal.text = "Лучший капитал: %s   ·   Рекорд: %s" % [Data.money(s.best_worth), Data.money(maxf(Save.get_value("record", 0.0), s.best_worth))]
+	_tip.text = _advice()
+
+
+## What to do next, in a sentence.
+func _advice() -> String:
+	if s.cash < 0.0:
+		return "Ты в долгах! Работай или жди дохода — иначе через несколько дней банкротство."
+	if s.businesses.is_empty():
+		if s.cash >= Data.BUSINESSES[0]["price"]:
+			return "Хватает на первый бизнес! Открой вкладку «Бизнес» и купи ларёк с шаурмой."
+		return "Касайся монеты — зарабатывай. Накопи %s на свой первый бизнес." % Data.money(Data.BUSINESSES[0]["price"])
+	if s.owned.is_empty():
+		return "Купи жильё или транспорт во вкладке «Имущество»: статус увеличивает доход всех бизнесов."
+	return "Улучшай бизнесы, покупай новые и рискуй с умом: события могут озолотить — или разорить."
+
+
+# --- Business and property lists ------------------------------------------------------
+
+func _card_box(border := Color(1, 1, 1, 0.06)) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = CARD
+	sb.set_corner_radius_all(36)
+	sb.border_color = border
+	sb.set_border_width_all(2)
+	sb.content_margin_left = 30
+	sb.content_margin_right = 30
+	sb.content_margin_top = 26
+	sb.content_margin_bottom = 26
+	return sb
+
+
+func _build_list(page: Control, business: bool) -> void:
+	var scroll: ScrollContainer = TouchScroll.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	page.add_child(scroll)
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_theme_constant_override("separation", 22)
+	scroll.add_child(box)
+	box.add_child(UI.spacer(30))
+	if business:
+		var shown := 0
+		for b in Data.BUSINESSES:
+			# Owned ones, plus the next two to aim for.
+			if not s.businesses.has(b["id"]):
+				shown += 1
+				if shown > 2:
+					box.add_child(_teaser(b["name"], b["price"]))
+					break
+			box.add_child(_business_card(b))
+	else:
+		for kind in [["home", "Жильё"], ["ride", "Транспорт"]]:
+			var head := UI.label(kind[1], 44, UI.SUB, 800)
+			head.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			var pad := MarginContainer.new()
+			pad.add_theme_constant_override("margin_left", 60)
+			pad.add_child(head)
+			box.add_child(pad)
+			for p in Data.PROPERTY:
+				if p["kind"] == kind[0]:
+					box.add_child(_property_card(p))
+	box.add_child(UI.spacer(40))
+
+
+func _row(card_child: Control) -> MarginContainer:
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 40)
+	m.add_theme_constant_override("margin_right", 40)
+	m.add_child(card_child)
+	return m
+
+
+func _business_card(b: Dictionary) -> Control:
+	var id: String = b["id"]
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _card_box())
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 26)
+	card.add_child(h)
+	h.add_child(_icon(id, b["color"]))
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_theme_constant_override("separation", 4)
+	h.add_child(v)
+	var name := UI.label(b["name"], 42, Color.WHITE, 800)
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	v.add_child(name)
+	var line := UI.label("", 34, GREEN, 700)
+	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	v.add_child(line)
+	var dots := Control.new()
+	dots.custom_minimum_size = Vector2(300, 26)
+	dots.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dots.draw.connect(func() -> void:
+		var lvl: int = s.businesses.get(id, 0)
+		for i in Data.MAX_LEVEL:
+			dots.draw_circle(Vector2(12 + i * 30, 13), 10, UI.GOLD if i < lvl else Color(1, 1, 1, 0.1)))
+	v.add_child(dots)
+	var btn := UI.pill_button("", UI.GOLD, func() -> void:
+		var ok: bool
+		if s.businesses.has(id):
+			ok = s.upgrade_business(id)
+		else:
+			ok = s.buy_business(id)
+		if ok:
+			Sfx.play("up")
+			_rebuild_pages()
+			_check_rank()
+		else:
+			Sfx.play("no", -6.0))
+	btn.custom_minimum_size = Vector2(250, 110)
+	btn.add_theme_font_size_override("font_size", 34)
+	h.add_child(btn)
+	var refresh := func() -> void:
+		var lvl: int = s.businesses.get(id, 0)
+		if lvl == 0:
+			line.text = "+%s в день" % Data.money(Data.income_at(b, 1))
+			btn.text = "Купить\n" + Data.money(b["price"])
+			btn.modulate.a = 1.0 if s.cash >= b["price"] else 0.4
+		elif lvl >= Data.MAX_LEVEL:
+			line.text = "+%s в день  ·  максимум" % Data.money(Data.income_at(b, lvl))
+			btn.text = "МАКС"
+			btn.modulate.a = 0.4
+		else:
+			line.text = "+%s → %s в день" % [Data.money(Data.income_at(b, lvl)), Data.money(Data.income_at(b, lvl + 1))]
+			btn.text = "Улучшить\n" + Data.money(s.upgrade_cost(id))
+			btn.modulate.a = 1.0 if s.cash >= s.upgrade_cost(id) else 0.4
+		dots.queue_redraw()
+	refresh.call()
+	_refreshers.append(refresh)
+	return _row(card)
+
+
+func _teaser(name: String, price: float) -> Control:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _card_box())
+	var l := UI.label("Дальше: %s и ещё больше — от %s" % [name, Data.money(price)], 34, UI.SUB, 600)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card.add_child(l)
+	return _row(card)
+
+
+func _property_card(p: Dictionary) -> Control:
+	var id: String = p["id"]
+	var card := PanelContainer.new()
+	var has: bool = s.owned.has(id)
+	card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.5) if has else Color(1, 1, 1, 0.06)))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 26)
+	card.add_child(h)
+	h.add_child(_icon(id, Color("#3a3f5c") if not has else Color("#c8921d")))
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(v)
+	var name := UI.label(p["name"], 40, Color.WHITE, 800)
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	v.add_child(name)
+	var perks := UI.label("Статус: доход +%d%%" % roundi(p["prestige"] * 100.0), 32, GREEN, 700)
+	perks.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	v.add_child(perks)
+	var cost := UI.label("Содержание: %s в день" % Data.money(p["upkeep"]) if p["upkeep"] > 0.0 else "Без расходов", 30, UI.SUB, 600)
+	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	v.add_child(cost)
+	if has:
+		var mine := UI.label("Твоё", 40, UI.GOLD, 900)
+		mine.custom_minimum_size = Vector2(250, 0)
+		h.add_child(mine)
+	else:
+		var btn := UI.pill_button("Купить\n" + Data.money(p["price"]), UI.GOLD, func() -> void:
+			if s.buy_property(id):
+				Sfx.play("fanfare", -4.0)
+				_rebuild_pages()
+				_check_rank()
+			else:
+				Sfx.play("no", -6.0))
+		btn.custom_minimum_size = Vector2(250, 110)
+		btn.add_theme_font_size_override("font_size", 34)
+		h.add_child(btn)
+		_refreshers.append(func() -> void: btn.modulate.a = 1.0 if s.cash >= p["price"] else 0.4)
+	return _row(card)
+
+
+func _icon(id: String, color: Color) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(140, 140)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.draw.connect(func() -> void: Icons.tile(c, id, Rect2(Vector2.ZERO, c.size), color))
+	return c
+
+
+# --- Hot deals -------------------------------------------------------------------
+
+func _build_deal() -> void:
+	_deal_box = Control.new()
+	_deal_box.visible = false
+	root.add_child(_deal_box)
+	_deal_box.position = Vector2(40, HEADER_H + 20)
+	_deal_box.size = Vector2(1000, 170)
+	_deal_box.draw.connect(_draw_deal)
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	for st in ["normal", "hover", "pressed", "focus"]:
+		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	_deal_box.add_child(b)
+	b.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	b.pressed.connect(UI.guarded(_take_deal))
+
+
+func _tick_deal(delta: float) -> void:
+	if not _deal.is_empty():
+		_deal["left"] -= delta
+		_deal_box.queue_redraw()
+		if _deal["left"] <= 0.0:
+			_deal = {}
+			_deal_box.visible = false
+		return
+	_deal_t -= delta
+	if _deal_t > 0.0:
+		return
+	_deal_t = randf_range(DEAL_GAP.x, DEAL_GAP.y)
+	var offers := []
+	var budget := maxf(600.0, s.cash * 2.5)
+	for b in Data.BUSINESSES:
+		if not s.businesses.has(b["id"]) and b["price"] <= budget:
+			offers.append({"kind": "biz", "item": b})
+	for p in Data.PROPERTY:
+		if not s.owned.has(p["id"]) and p["price"] <= budget:
+			offers.append({"kind": "prop", "item": p})
+	if offers.is_empty():
+		return
+	_deal = offers[randi() % offers.size()]
+	_deal["off"] = randf_range(0.35, 0.6)
+	_deal["price"] = roundf(_deal["item"]["price"] * (1.0 - _deal["off"]))
+	_deal["left"] = DEAL_TIME
+	_deal_box.visible = true
+	Sfx.play("ding", -4.0)
+
+
+func _draw_deal() -> void:
+	if _deal.is_empty():
+		return
+	var r := Rect2(Vector2.ZERO, _deal_box.size)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color("#2a1630")
+	sb.set_corner_radius_all(36)
+	sb.border_color = Color("#ff5fa2")
+	sb.set_border_width_all(3)
+	sb.shadow_color = Color(1, 0.37, 0.64, 0.4 + 0.2 * sin(Time.get_ticks_msec() / 150.0))
+	sb.shadow_size = 24
+	_deal_box.draw_style_box(sb, r)
+	var item: Dictionary = _deal["item"]
+	Icons.tile(_deal_box, item["id"], Rect2(22, 22, 126, 126), item.get("color", Color("#c8921d")))
+	var f := UI.font(800)
+	_deal_box.draw_string(f, Vector2(176, 62), "ГОРЯЩАЯ СДЕЛКА  −%d%%" % roundi(_deal["off"] * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 32, Color("#ff5fa2"))
+	_deal_box.draw_string(f, Vector2(176, 112), "%s за %s" % [item["name"], Data.money(_deal["price"])], HORIZONTAL_ALIGNMENT_LEFT, 800, 40, Color.WHITE)
+	var k: float = _deal["left"] / DEAL_TIME
+	_deal_box.draw_rect(Rect2(176, 134, 780 * k, 10), Color("#ff5fa2"))
+
+
+func _take_deal() -> void:
+	if _deal.is_empty():
+		return
+	var ok: bool
+	if _deal["kind"] == "biz":
+		ok = s.buy_business(_deal["item"]["id"], _deal["price"])
+	else:
+		ok = s.buy_property(_deal["item"]["id"], _deal["price"])
+	if ok:
+		Sfx.play("fanfare", -2.0)
+		_float("Куплено со скидкой!", Vector2(540, HEADER_H + 230), UI.GOLD, 54)
+		_deal = {}
+		_deal_box.visible = false
+		_rebuild_pages()
+		_check_rank()
 	else:
 		Sfx.play("no", -6.0)
+		_float("Не хватает денег", Vector2(540, HEADER_H + 230), RED, 46)
 
 
-## Coins made while the game was closed or in the background.
-func _welcome_back(seconds: float) -> void:
-	var earned: float = mine.catch_up(seconds)
-	if earned <= 0.0:
-		return
-	_shown = mine.coins
-	var card := Control.new()
-	root.add_child(card)
-	card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+# --- Modal cards ----------------------------------------------------------------
+
+func _open_modal() -> VBoxContainer:
+	UI.modal_open = true
+	_modal = Control.new()
+	root.add_child(_modal)
+	_modal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var shade := ColorRect.new()
-	shade.color = Color(0.03, 0.02, 0.1, 0.7)
-	card.add_child(shade)
+	shade.color = Color(0.02, 0.02, 0.05, 0.78)
+	_modal.add_child(shade)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var card := PanelContainer.new()
+	var sb := _card_box(Color(0.96, 0.77, 0.32, 0.45))
+	sb.content_margin_left = 54
+	sb.content_margin_right = 54
+	sb.content_margin_top = 54
+	sb.content_margin_bottom = 54
+	sb.set_corner_radius_all(50)
+	sb.shadow_color = Color(0, 0, 0, 0.6)
+	sb.shadow_size = 40
+	card.add_theme_stylebox_override("panel", sb)
+	_modal.add_child(card)
+	card.position = Vector2(50, root.size.y * 0.2)
+	card.custom_minimum_size = Vector2(980, 0)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 20)
+	box.add_theme_constant_override("separation", 22)
 	card.add_child(box)
-	box.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	box.offset_top = root.size.y * 0.3
-	box.add_child(UI.label("Пока тебя не было,\nшахта заработала", 52, UI.SUB, 600))
-	var amount := UI.label("+" + Eco.short(earned), 150, UI.GOLD, 900)
-	UI.glow(amount, Color(1, 0.7, 0.2, 0.7), 26)
-	box.add_child(amount)
-	box.add_child(UI.spacer(40))
-	var take := UI.pill_button("Забрать", UI.GOLD, func() -> void:
+	_modal.modulate.a = 0.0
+	_modal.create_tween().tween_property(_modal, "modulate:a", 1.0, 0.3)
+	return box
+
+
+func _close_modal() -> void:
+	if _modal:
+		_modal.queue_free()
+	_modal = null
+	UI.modal_open = false
+	_rebuild_pages()
+
+
+func _modal_text(box: VBoxContainer, text: String, size_px: int, color: Color, weight := 600) -> Label:
+	var l := UI.label(text, size_px, color, weight)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 870
+	box.add_child(l)
+	return l
+
+
+func _modal_button(box: VBoxContainer, text: String, color: Color, on_press: Callable) -> void:
+	var b := UI.pill_button(text, color, on_press)
+	b.custom_minimum_size = Vector2(870, 130)
+	b.add_theme_font_size_override("font_size", 42)
+	box.add_child(b)
+	# A card can pop up mid-tap on the coin: wait a moment before buttons
+	# accept a press, so a choice is never made by accident.
+	b.disabled = true
+	b.add_theme_stylebox_override("disabled", b.get_theme_stylebox("normal"))
+	b.add_theme_color_override("font_disabled_color", Color("#1a1040"))
+	b.modulate.a = 0.5
+	get_tree().create_timer(0.7).timeout.connect(func() -> void:
+		if is_instance_valid(b):
+			b.disabled = false
+			b.create_tween().tween_property(b, "modulate:a", 1.0, 0.2))
+
+
+func _fill(text: String, e: Dictionary) -> String:
+	var biz := ""
+	if e.get("biz_id", "") != "":
+		biz = Data.business(e["biz_id"])["name"]
+	return text.replace("{amt}", Data.money(e["amount"])).replace("{biz}", biz)
+
+
+func _show_event() -> void:
+	var e: Dictionary = Events.pick(s, _last_event)
+	_last_event = e["id"]
+	Sfx.play("ding")
+	var box := _open_modal()
+	_modal_text(box, "СОБЫТИЕ", 32, UI.GOLD, 800)
+	_modal_text(box, e["title"], 64, Color.WHITE, 900)
+	_modal_text(box, _fill(e["text"], e), 42, Color("#d8dbe8"), 500)
+	box.add_child(UI.spacer(20))
+	var colors := [UI.GOLD, Color("#8f96b8")]
+	for i in e["choices"].size():
+		var choice: Dictionary = e["choices"][i]
+		_modal_button(box, _fill(choice["label"], e), colors[i % 2], _choose.bind(e, choice))
+
+
+func _choose(e: Dictionary, choice: Dictionary) -> void:
+	var outcome: Dictionary = Events.roll(choice)
+	var before: float = s.cash
+	s.apply(outcome, e["amount"], e["biz_id"])
+	var diff: float = s.cash - before
+	if _modal:
+		_modal.queue_free()
+	_modal = null
+	var box := _open_modal()
+	var mult: float = outcome["boost"][0] if outcome.has("boost") else 1.0
+	var lvl: int = outcome.get("level", 0)
+	var good := diff > 0.0 or mult > 1.0 or lvl > 0
+	var bad := diff < 0.0 or mult < 1.0 or lvl < 0
+	_modal_text(box, e["title"], 40, UI.SUB, 800)
+	_modal_text(box, _fill(outcome["text"], e), 52, Color.WHITE, 800)
+	if absf(diff) >= 1.0:
+		var l := _modal_text(box, ("+" if diff > 0.0 else "") + Data.money(diff), 96, GREEN if diff > 0.0 else RED, 900)
+		UI.glow(l, Color(GREEN if diff > 0.0 else RED, 0.5), 18)
+	if outcome.has("boost"):
+		_modal_text(box, "Доход ×%.2f на %d дней" % [mult, outcome["boost"][1]], 40, GREEN if mult > 1.0 else RED, 700)
+	box.add_child(UI.spacer(20))
+	_modal_button(box, "Дальше", UI.GOLD, func() -> void:
+		_event_t = randf_range(EVENT_GAP.x, EVENT_GAP.y)
+		_close_modal()
+		_check_rank())
+	if good and not bad:
+		Sfx.play("fanfare", -4.0)
+	elif bad:
+		Sfx.play("no", -2.0)
+
+
+func _show_rank_up(r: int) -> void:
+	if _modal:
+		return
+	Sfx.play("fanfare")
+	var box := _open_modal()
+	_modal_text(box, "НОВЫЙ СТАТУС", 34, UI.GOLD, 800)
+	var name := _modal_text(box, Data.RANKS[r]["name"], 96, Color.WHITE, 900)
+	UI.glow(name, Color(0.96, 0.77, 0.32, 0.6), 24)
+	_modal_text(box, "Новая работа: %s — %s за касание" % [Data.RANKS[r]["job"], Data.money(Data.RANKS[r]["pay"])], 40, Color("#d8dbe8"), 600)
+	if r == Data.RANKS.size() - 1:
+		_modal_text(box, "Ты сделал это: от нуля до миллиарда за %d дней!" % s.day, 44, GREEN, 800)
+	box.add_child(UI.spacer(20))
+	_modal_button(box, "Круто!", UI.GOLD, _close_modal)
+
+
+func _show_bankrupt() -> void:
+	_save()
+	Sfx.play("no")
+	var box := _open_modal()
+	_modal_text(box, "БАНКРОТ", 96, RED, 900)
+	_modal_text(box, "Долги не вернул — банк забрал всё. Но настоящие миллиардеры падали и не раз.", 42, Color("#d8dbe8"), 500)
+	_modal_text(box, "Лучший капитал: %s   ·   Дней: %d" % [Data.money(s.best_worth), s.day], 38, UI.GOLD, 700)
+	box.add_child(UI.spacer(20))
+	_modal_button(box, "Начать заново", UI.GOLD, func() -> void:
+		s = State.new()
+		_shown = s.cash
+		_rank_seen = 0
+		_deal = {}
+		_deal_box.visible = false
+		_event_t = 25.0
+		_save()
+		_close_modal())
+
+
+func _welcome_back(seconds: float) -> void:
+	var t := minf(seconds, AWAY_CAP)
+	var days := t / Data.DAY
+	var earned: float = maxf(0.0, (s.daily_income() - s.daily_costs()) * days * AWAY_RATE)
+	if earned < 1.0 or _modal:
+		return
+	s.cash += earned
+	s.day += int(days)
+	_shown = s.cash
+	var box := _open_modal()
+	_modal_text(box, "С возвращением!", 60, Color.WHITE, 900)
+	_modal_text(box, "Пока тебя не было, бизнес заработал", 42, Color("#d8dbe8"), 500)
+	var l := _modal_text(box, "+" + Data.money(earned), 110, GREEN, 900)
+	UI.glow(l, Color(GREEN, 0.5), 20)
+	box.add_child(UI.spacer(20))
+	_modal_button(box, "Забрать", UI.GOLD, func() -> void:
 		Sfx.play("coin")
-		card.queue_free())
-	var holder := CenterContainer.new()
-	holder.add_child(take)
-	box.add_child(holder)
+		_close_modal())
+
+
+# --- Effects ----------------------------------------------------------------------
+
+func _float(text: String, at: Vector2, color: Color, size_px: int) -> void:
+	var l := UI.label(text, size_px, color, 900)
+	UI.glow(l, Color(0, 0, 0, 0.6), 10)
+	l.size = Vector2(800, 100)
+	l.position = at - l.size * 0.5
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(l)
+	var tw := l.create_tween().set_parallel()
+	tw.tween_property(l, "position:y", l.position.y - 130, 0.9).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(l, "modulate:a", 0.0, 0.45).set_delay(0.45)
+	tw.chain().tween_callback(l.queue_free)

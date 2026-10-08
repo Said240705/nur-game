@@ -7,6 +7,10 @@ const TEXT := Color("#f4f1ff")
 const SUB := Color("#a9a3d9")
 
 static var _fonts := {}
+## True while a finger is scrolling a list; buttons ignore the release then.
+static var dragging := false
+## True while an event card covers the screen.
+static var modal_open := false
 
 
 ## Inter at a weight from 100 (thin) to 900 (black).
@@ -65,10 +69,17 @@ static func pill_button(text: String, color: Color, on_press: Callable) -> Butto
 	b.add_theme_stylebox_override("hover", _pill(color, glow_color))
 	b.add_theme_stylebox_override("focus", _pill(color, glow_color))
 	b.add_theme_stylebox_override("pressed", _pill(color.darkened(0.15), Color(color, 0.3)))
-	b.pressed.connect(func() -> void:
+	b.pressed.connect(guarded(func() -> void:
 		Sfx.play("click")
-		on_press.call())
+		on_press.call()))
 	return b
+
+
+## A press that ended a scroll gesture is not a tap.
+static func guarded(on_press: Callable) -> Callable:
+	return func() -> void:
+		if not dragging:
+			on_press.call()
 
 
 ## A text button without a background.
@@ -82,9 +93,9 @@ static func flat_button(text: String, size_px: int, color: Color, on_press: Call
 		b.add_theme_color_override(k, color)
 	for st in ["normal", "hover", "pressed", "focus"]:
 		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-	b.pressed.connect(func() -> void:
+	b.pressed.connect(guarded(func() -> void:
 		Sfx.play("click")
-		on_press.call())
+		on_press.call()))
 	return b
 
 

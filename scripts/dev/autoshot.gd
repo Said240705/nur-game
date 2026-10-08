@@ -1,13 +1,11 @@
 extends Node
-## Developer tool: plays the first minutes by itself and saves screenshots.
-##   godot --path . -- --shots=DIR --mode=start|grow|deep
-## Uses a fresh mine, so it never touches a real save.
-
-const Mine := preload("res://scripts/game/mine.gd")
+## Developer tool: plays a little by itself and saves screenshots.
+##   godot --path . -- --shots=DIR --mode=tour
+## Starts from a fresh life and never touches the real save.
 
 var _main: Node
 var _dir := "user://shots"
-var _mode := "start"
+var _mode := "tour"
 
 
 func setup(main: Node, args: PackedStringArray) -> void:
@@ -21,68 +19,61 @@ func setup(main: Node, args: PackedStringArray) -> void:
 
 func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(_dir)
-	var m: RefCounted = Mine.new()
-	_use(m)
-	match _mode:
-		"start":
-			await _wait(1.0)
-			await _shot("start")
-			m.tap("shaft:0")
-			await _wait(2.0)
-			await _shot("digging")
-			await _wait(2.5)
-			m.tap("lift")
-			await _wait(1.6)
-			await _shot("lift")
-			await _wait(1.5)
-			m.tap("cart")
-			await _wait(2.8)
-			await _shot("sold")
-		"grow":
-			m.coins = 5000.0
-			m.upgrade("shaft:0", 10)
-			m.hire("shaft:0")
-			m.hire("lift")
-			m.hire("cart")
-			m.open_shaft()
-			m.hire("shaft:1")
-			await _wait(6.0)
-			await _shot("grow")
-			_main._open_sheet("shaft:1")
-			await _wait(1.0)
-			await _shot("sheet")
-		"deep":
-			m.coins = 1e14
-			for i in 9:
-				m.open_shaft()
-			for i in m.shafts.size():
-				m.upgrade("shaft:%d" % i, 30)
-				m.hire("shaft:%d" % i)
-			m.hire("lift")
-			m.hire("cart")
-			m.upgrade("lift", 60)
-			await _wait(4.0)
-			_main.world.scroll = 1400.0
-			await _wait(1.0)
-			await _shot("deep")
-			_main.world.scroll = _main.world.max_scroll()
-			await _wait(1.0)
-			await _shot("bottom")
-			_main._welcome_back(3600.0)
-			await _wait(1.0)
-			await _shot("away")
+	var s: RefCounted = _main.s
+	_main._event_t = 999.0
+	_main._deal_t = 999.0
+	await _wait(1.0)
+	await _shot("work")
+	for i in 5:
+		_main._on_work()
+		await _wait(0.08)
+	await _wait(0.2)
+	await _shot("work_tap")
+	s.cash = 25000.0
+	s.buy_business("shawarma")
+	s.upgrade_business("shawarma")
+	s.upgrade_business("shawarma")
+	s.buy_business("wash")
+	s.buy_property("room")
+	s.buy_property("bike")
+	_main._rank_seen = 99
+	_main._rebuild_pages()
+	_main._show_tab("biz")
+	await _wait(1.0)
+	await _shot("biz")
+	_main._show_tab("prop")
+	await _wait(0.6)
+	await _shot("prop")
+	_main._show_tab("work")
+	_main._deal_t = 0.0
+	await _wait(1.0)
+	await _shot("deal")
+	_main._event_t = 0.0
+	await _wait(0.8)
+	await _shot("event")
+	# Take the first choice.
+	for b in _main._modal.find_children("*", "Button", true, false):
+		b.pressed.emit()
+		break
+	await _wait(0.8)
+	await _shot("outcome")
+	_main._close_modal()
+	_main._rank_seen = 2
+	s.cash = 2e6
+	_main._check_rank()
+	await _wait(0.8)
+	await _shot("rank")
+	_main._close_modal()
+	_main._event_t = 999.0
+	s.cash = -1e9
+	s.debt_days = 6
+	await _wait(3.5)
+	await _shot("bankrupt")
 	get_tree().quit()
 
 
-func _use(m: RefCounted) -> void:
-	_main.mine = m
-	_main.world.mine = m
-	_main.sheet.mine = m
-	_main._shown = 0.0
-
-
-func _wait(s: float) -> void:
-	await get_tree().create_timer(s).timeout
+func _wait(t: float) -> void:
+	await get_tree().create_timer(t).timeout
 
 
 func _shot(label: String) -> void:
