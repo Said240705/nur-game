@@ -10,9 +10,9 @@ config_version=5
 
 [application]
 
-config/name="Была в сети"
-config/description="Была в сети — детектив внутри чужого телефона"
-config/version="0.1.0"
+config/name="Сияние"
+config/description="Сияние — головоломка из сияющих блоков"
+config/version="1.0.0"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0, 0, 0, 1)
@@ -21,8 +21,9 @@ config/icon="res://icon.svg"
 
 [audio]
 
-; Procedural sounds are built at runtime and cannot be pre-sampled by the browser.
+; Sounds are synthesized at runtime, so the browser cannot pre-sample them.
 general/default_playback_type.web=0
+
 
 [autoload]
 

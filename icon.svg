@@ -1,21 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="45%" r="70%">
-      <stop offset="0%" stop-color="#1b2030"/>
-      <stop offset="100%" stop-color="#05060a"/>
-    </radialGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#ffe1b0" stop-opacity="1"/>
-      <stop offset="30%" stop-color="#ffb76b" stop-opacity="0.7"/>
-      <stop offset="100%" stop-color="#ff9a40" stop-opacity="0"/>
-    </radialGradient>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1b66"/><stop offset="1" stop-color="#070a24"/>
+    </linearGradient>
+    <linearGradient id="a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff86a6"/><stop offset="1" stop-color="#d9305e"/></linearGradient>
+    <linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#e0a815"/></linearGradient>
+    <linearGradient id="c" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fdcff"/><stop offset="1" stop-color="#1596d6"/></linearGradient>
+    <linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d99bff"/><stop offset="1" stop-color="#9433d6"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="7"/></filter>
   </defs>
-  <rect width="512" height="512" rx="96" fill="url(#bg)"/>
-  <path d="M60 400 L190 210 L230 170 L256 120 L284 168 L330 220 L452 400 Z" fill="#2a3040"/>
-  <path d="M232 168 L256 120 L282 166 L268 158 L256 172 L244 160 Z" fill="#c4cad6"/>
-  <ellipse cx="256" cy="410" rx="56" ry="10" fill="#000" opacity="0.4"/>
-  <path d="M238 300 L274 300 L290 350 L304 410 L272 404 L256 412 L240 404 L208 410 L222 350 Z" fill="#0b0b0f"/>
-  <circle cx="256" cy="276" r="24" fill="#0b0b0f"/>
-  <circle cx="256" cy="335" r="60" fill="url(#glow)"/>
-  <circle cx="256" cy="335" r="7" fill="#fff3dc"/>
+  <rect width="256" height="256" rx="56" fill="url(#sky)"/>
+  <g filter="url(#glow)" opacity="0.7">
+    <rect x="50" y="50" width="70" height="70" rx="16" fill="#ff4f7b"/><rect x="136" y="50" width="70" height="70" rx="16" fill="#ffd447"/>
+    <rect x="50" y="136" width="70" height="70" rx="16" fill="#33c8ff"/><rect x="136" y="136" width="70" height="70" rx="16" fill="#c264ff"/>
+  </g>
+  <rect x="50" y="50" width="70" height="70" rx="16" fill="url(#a)"/><rect x="136" y="50" width="70" height="70" rx="16" fill="url(#b)"/>
+  <rect x="50" y="136" width="70" height="70" rx="16" fill="url(#c)"/><rect x="136" y="136" width="70" height="70" rx="16" fill="url(#d)"/>
+  <g fill="#fff" opacity="0.45">
+    <ellipse cx="85" cy="68" rx="24" ry="9"/><ellipse cx="171" cy="68" rx="24" ry="9"/>
+    <ellipse cx="85" cy="154" rx="24" ry="9"/><ellipse cx="171" cy="154" rx="24" ry="9"/>
+  </g>
 </svg>

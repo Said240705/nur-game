@@ -1,12 +1,12 @@
 extends Node
-## Developer tool: drives the prologue without a player and saves screenshots.
-## Only loaded when the game is started with user arguments, e.g.
-##   godot --path . -- --shots=/tmp/shots --mode=lev
-## Modes: intro, note, lev, mira, ch1, resume.
+## Developer tool: plays by itself and saves screenshots.
+##   godot --path . -- --shots=DIR --mode=title|play|over
+
+const Shapes := preload("res://scripts/game/shapes.gd")
 
 var _main: Node
 var _dir := "user://shots"
-var _mode := "lev"
+var _mode := "play"
 
 
 func setup(main: Node, args: PackedStringArray) -> void:
@@ -19,239 +19,76 @@ func setup(main: Node, args: PackedStringArray) -> void:
 
 
 func _ready() -> void:
-	process_mode = Node.PROCESS_MODE_ALWAYS
 	DirAccess.make_dir_recursive_absolute(_dir)
-	_run()
-
-
-func _run() -> void:
+	var game: Node = _main.game
 	match _mode:
-		"intro":
-			_main._intro()
-			for i in 14:
-				await _wait(3.0)
-				await _shot("intro_%02d" % i)
-				if i in [5, 6, 7]:
-					_tap()
-		"note":
-			_main.cinema.set_black(0.0)
-			_main.lev_phone.visible = true
-			_main.overlay.note(_main.Texts.NOTE_TEXT)
-			await _wait(2.0)
-			await _shot("note")
-		"lev":
-			_main.cinema.set_black(1.0)
-			await _main._start_lev_phone()
+		"title":
+			_main._title(false)
 			await _wait(1.5)
-			await _shot("lev_lock")
-			var p: Control = _main.lev_phone
-			p._on_lock_tapped()
+			await _shot("title")
+		"play":
+			game.new_round()
+			game.paused = false
 			await _wait(1.0)
-			await _shot("lev_home")
-			p.open_app("messages")
-			await _wait(1.0)
-			await _shot("app_chats")
-			p._stack.back()._open_chat(p.chats[0])
-			await _wait(1.5)
-			await _shot("app_chat_vera")
-			p.pop()
-			p.pop()
-			await _wait(0.4)
-			p.open_app("notes")
-			await _wait(1.0)
-			await _shot("app_notes")
-			p._stack.back()._open(p.data.NOTES[0])
-			await _wait(1.0)
-			await _shot("app_note")
-			p.pop()
-			p.pop()
-			await _wait(0.4)
-			p.open_app("browser")
-			await _wait(1.0)
-			await _shot("app_site")
-			var br: Control = p._stack.back()
-			(br.get_meta("scroll") as ScrollContainer).scroll_vertical = 1100
+			await _shot("play_0")
+			# Drag the first piece by hand to show the ghost.
+			var p: Dictionary = game.pieces[0]
+			game._drag = 0
+			game._move(game.view.position + game.view.cell_center(Vector2i(3, 3)) + Vector2(0, game.LIFT))
 			await _wait(0.6)
-			await _shot("app_site_2")
-			br._open_article(p.data.SITE["articles"][0])
-			await _wait(1.0)
-			await _shot("app_article")
-			var art: Control = p._stack.back()
-			var sc: ScrollContainer = art.get_meta("scroll")
-			sc.scroll_vertical = 2200
-			await _wait(0.6)
-			await _shot("app_article_2")
-			sc.scroll_vertical = 100000
-			await _wait(0.6)
-			await _shot("app_article_3")
-			p.pop()
-			p.pop()
-			await _wait(0.4)
-			p.open_app("photos")
-			await _wait(1.0)
-			await _shot("app_photos")
-			var g: Control = p._stack.back()
-			g._show_tab("Альбомы")
-			await _wait(0.8)
-			await _shot("app_albums")
-			g._open(p.data.PHOTOS[1])
-			await _wait(1.0)
-			await _shot("app_photo")
-			p.pop()
-			p.pop()
-			await _wait(0.4)
-			p.open_app("voicemail")
-			await _wait(1.0)
-			await _shot("app_voice")
-			p._stack.back()._open(p.data.VOICEMAIL[0])
-			await _wait(4.0)
-			await _shot("app_voice_msg")
-		"mira":
-			_main.cinema.set_black(1.0)
-			_main.lev_phone.visible = true
-			_main._on_door()
-			for i in 60:
-				await _wait(1.5)
-				if i < 12:
-					await _shot("door_%02d" % i)
-				if _main.mira_phone:
+			await _shot("play_drag")
+			game._drag = -1
+			game.view.hide_ghost()
+			for move in 40:
+				if game.over:
 					break
-				if i % 2 == 1:
-					_tap()
-			await _wait(3.0)
-			await _shot("mira_lock")
-			var m: Control = _main.mira_phone
-			m._on_lock_tapped()
-			await _wait(0.8)
-			for k in ["1", "2", "3", "4"]:
-				m._on_key(k)
-				await _wait(0.1)
-			await _wait(0.2)
-			await _shot("mira_wrong")
-			await _wait(1.0)
-			for k in ["0", "3"]:
-				m._on_key(k)
-			await _wait(0.3)
-			await _shot("mira_keypad")
-			for k in ["1", "2"]:
-				m._on_key(k)
-			await _wait(2.0)
-			await _shot("mira_unlocked")
-			await _wait(5.0)
-			await _shot("mira_chapter")
-		"ch1":
-			await _chapter_one()
-		"resume":
-			_main.Save.store("chapter_one")
-			_main._intro()
-			await _wait(2.0)
-			await _shot("resume_menu")
-			await _press_option("Продолжить")
-			await _wait(9.0)
-			await _shot("resume_ch1")
+				_auto_move(game)
+				await _wait(0.12)
+				if move in [6, 14, 22]:
+					await _wait(0.15)
+					await _shot("play_%02d" % move)
+			await _wait(0.5)
+			await _shot("play_end")
+		"over":
+			game.new_round()
+			for i in 64:
+				game.board.cells[i] = (i % 7) + 1 if i % 5 != 0 else 0
+			game.paused = false
+			game._check_over()
+			await _wait(3.5)
+			await _shot("over")
 	get_tree().quit()
 
 
-## Mira's phone, already unlocked: every app, the deduction and the cliffhanger.
-func _chapter_one() -> void:
-	_main.cinema.set_black(0.0)
-	var m: Control = _main.Phone.new()
-	m.setup(_main.MiraPhone)
-	m.viewed.connect(_main._on_mira_viewed)
-	_main.mira_phone = m
-	_main._phones.add_child(m)
-	_main._showing_mira = true
-	await _wait(1.0)
-	await _shot("ch1_lock")
-	m._unlock()
-	_main.stage = _main.Stage.CHAPTER_ONE
-	await _wait(1.0)
-	await _shot("ch1_home")
-	m.open_app("messages")
-	await _wait(1.0)
-	await _shot("ch1_chats")
-	var msgr: Control = m._stack.back()
-	for id in ["timur", "dasha", "n", "mom"]:
-		msgr._open_chat(m._chat(id))
-		await _wait(1.5)
-		await _shot("ch1_chat_" + id)
-		if id == "mom":
-			msgr._open_profile(m._chat("mom"))
-			await _wait(1.0)
-			await _shot("ch1_mom_profile")
-			m.pop()
-			await _wait(0.4)
-		m.pop()
-		await _wait(0.5)
-	m.pop()
-	await _wait(0.4)
-	m.open_app("notes")
-	await _wait(1.0)
-	await _shot("ch1_notes")
-	m._stack.back()._open(m.data.NOTES[0])
-	await _wait(1.0)
-	await _shot("ch1_note")
-	m.pop()
-	m.pop()
-	await _wait(0.4)
-	m.open_app("photos")
-	await _wait(1.0)
-	await _shot("ch1_photos")
-	m._stack.back()._open(m.data.PHOTOS[1])
-	await _wait(1.0)
-	await _shot("ch1_course")
-	m.pop()
-	m.pop()
-	await _wait(0.4)
-	m.open_app("voicemail")
-	await _wait(1.0)
-	await _shot("ch1_voice")
-	m.pop()
-	await _wait(9.0)
-	await _shot("ch1_deduce")
-	# A wrong answer first, then the right one.
-	await _press_option("Даша")
-	await _wait(2.0)
-	await _shot("ch1_wrong")
-	await _wait(4.0)
-	await _press_option("Тимур")
-	await _wait(2.0)
-	await _shot("ch1_right")
-	await _wait(14.0)
-	await _shot("ch1_n_live")
-	await _wait(5.0)
-	await _shot("ch1_n_live2")
-	await _wait(8.0)
-	await _shot("ch1_end")
+## Places some piece where it clears the most lines, as a greedy player would.
+func _auto_move(game: Node) -> void:
+	var best := -1
+	var best_at := Vector2i.ZERO
+	var best_i := -1
+	for i in 3:
+		var p: Dictionary = game.pieces[i]
+		if p["placed"]:
+			continue
+		var shape := Shapes.cells(p["shape"])
+		for y in 8:
+			for x in 8:
+				var at := Vector2i(x, y)
+				if game.board.can_place(shape, at):
+					var l: Dictionary = game.board.lines_if_placed(shape, at)
+					var v: int = (l["rows"].size() + l["cols"].size()) * 100 + y * 3 + x
+					if v > best:
+						best = v
+						best_at = at
+						best_i = i
+	if best_i >= 0:
+		game._place(best_i, best_at)
 
 
-func _press_option(text: String) -> void:
-	for i in 40:
-		for b in _main.overlay.find_children("*", "Button", true, false):
-			if b.text.begins_with(text) and b.is_visible_in_tree():
-				b.pressed.emit()
-				return
-		await _wait(0.25)
-
-
-func _tap() -> void:
-	var e := InputEventScreenTouch.new()
-	e.pressed = true
-	e.position = Vector2(get_window().size) * 0.5
-	Input.parse_input_event(e)
-	var up := InputEventScreenTouch.new()
-	up.pressed = false
-	up.position = e.position
-	Input.parse_input_event(up)
-
-
-func _wait(seconds: float) -> void:
-	await get_tree().create_timer(seconds, true).timeout
+func _wait(s: float) -> void:
+	await get_tree().create_timer(s).timeout
 
 
 func _shot(label: String) -> void:
 	await RenderingServer.frame_post_draw
-	var img := get_viewport().get_texture().get_image()
-	if img:
-		img.save_png("%s/%s.png" % [_dir, label])
-		print("shot: ", label)
+	get_viewport().get_texture().get_image().save_png("%s/%s.png" % [_dir, label])
+	print("shot: ", label)
