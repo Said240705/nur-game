@@ -19,7 +19,7 @@ const BOILERPLATE := [
 
 
 ## A contract for buying `biz` at `price`; `risky` deals hide traps more often.
-static func make(biz: String, price: float, risky: bool) -> Dictionary:
+static func make(biz: String, price: float, risky: bool, plot := -1, ready := false) -> Dictionary:
 	var b := Data.business(biz)
 	var clauses := []
 	for c in BOILERPLATE:
@@ -34,7 +34,7 @@ static func make(biz: String, price: float, risky: bool) -> Dictionary:
 				trap = {"kind": "debt", "value": debt,
 					"text": "Покупатель принимает на себя обязательства Продавца перед поставщиками и кредиторами в размере %s." % Data.money(debt)}
 			1:
-				var rent := roundf(b["income"] * randf_range(0.35, 0.7))
+				var rent := roundf(Data.plot_rent(Data.plot(plot)) * randf_range(1.0, 2.5) if plot >= 0 else price * 0.02)
 				trap = {"kind": "rent", "value": rent,
 					"text": "Помещение остаётся в собственности Продавца; Покупатель вносит арендную плату %s в день бессрочно." % Data.money(rent)}
 			2:
@@ -50,7 +50,7 @@ static func make(biz: String, price: float, risky: bool) -> Dictionary:
 	var numbered := []
 	for i in clauses.size():
 		numbered.append("%d. %s" % [i + 1, clauses[i]])
-	return {"biz": biz, "price": price, "clauses": numbered, "trap": trap}
+	return {"biz": biz, "price": price, "clauses": numbered, "trap": trap, "plot": plot, "ready": ready}
 
 
 ## Whether the contract has a clause that hurts the buyer.
@@ -58,21 +58,20 @@ static func is_bad(c: Dictionary) -> bool:
 	return not c["trap"].is_empty() and c["trap"]["kind"] != "bonus"
 
 
-## Puts what was signed into effect; returns a sentence about it, or "".
-static func apply(c: Dictionary, s: RefCounted) -> String:
+## Puts what was signed into effect for venue `v`; returns a sentence about it, or "".
+static func apply(c: Dictionary, s: RefCounted, v: Dictionary) -> String:
 	var t: Dictionary = c["trap"]
 	if t.is_empty():
 		return ""
-	var biz: String = c["biz"]
 	match t["kind"]:
 		"debt":
 			s.cash -= t["value"]
 			return "Ты подписал не читая: к бизнесу прилагались долги. −%s" % Data.money(t["value"])
 		"rent":
-			s.rents[biz] = t["value"]
+			v["extra_rent"] = t["value"]
 			return "Помещение не твоё: теперь ты платишь продавцу аренду %s каждый день." % Data.money(t["value"])
 		"repair":
-			s.repairs[biz] = int(t["value"])
+			v["closed"] = int(t["value"])
 			return "Бизнес на ремонте: %d дней без дохода." % int(t["value"])
 		"bonus":
 			s.cash += t["value"]

@@ -32,9 +32,9 @@ const LIST := [
 		{"label": "Снизить цены", "outcomes": [{"p": 1.0, "text": "Клиенты остались, но доход меньше: −20% на 10 дней.", "boost": [0.8, 10]}]},
 		{"label": "Ничего не делать", "outcomes": [
 			{"p": 0.5, "text": "Конкурент прогорел за месяц. Ха!"},
-			{"p": 0.5, "text": "Клиенты ушли к нему. «{biz}» теряет уровень.", "level": -1}]}]},
-	{"id": "buyer", "title": "Покупатель", "need": "biz", "text": "Инвестор хочет купить твой «{biz}» за {amt}. Это втрое дороже, чем ты платил.",
-	"amt": ["biz", 3.0], "choices": [
+			{"p": 0.5, "text": "Клиенты ушли к нему. Рейтинг «{biz}» падает.", "level": -1}]}]},
+	{"id": "buyer", "title": "Покупатель", "need": "biz", "text": "Инвестор хочет купить твой «{biz}» за {amt}. Это вдвое больше, чем ты вложил.",
+	"amt": ["biz", 2.0], "choices": [
 		{"label": "Продать", "outcomes": [{"p": 1.0, "text": "Сделка закрыта. Деньги на счету!", "sell": true}]},
 		{"label": "Не продаётся", "outcomes": [{"p": 1.0, "text": "Ты не продаёшь своё. Уважаемо."}]}]},
 	{"id": "blogger", "title": "Реклама у блогера", "text": "Блогер-миллионник предлагает рекламу за {amt}.",
@@ -52,7 +52,7 @@ const LIST := [
 	{"id": "fire", "title": "Пожар!", "need": "biz", "text": "Ночью в «{biz}» замкнуло проводку. Ремонт обойдётся в {amt}.",
 	"amt": ["biz", 0.3], "choices": [
 		{"label": "Отремонтировать", "outcomes": [{"p": 1.0, "text": "Всё как новенькое.", "cash": -1.0}]},
-		{"label": "Работать как есть", "outcomes": [{"p": 1.0, "text": "Клиенты морщатся от запаха гари. «{biz}» теряет уровень.", "level": -1}]}]},
+		{"label": "Работать как есть", "outcomes": [{"p": 1.0, "text": "Клиенты морщатся от запаха гари. Рейтинг «{biz}» падает.", "level": -1}]}]},
 	{"id": "crisis", "title": "Кризис", "text": "В стране кризис: люди экономят на всём.",
 	"amt": ["fixed", 0.0], "choices": [
 		{"label": "Переждать", "outcomes": [{"p": 1.0, "text": "Доход −30% на 12 дней. Главное — выжить.", "boost": [0.7, 12]}]},
@@ -88,8 +88,8 @@ const LIST := [
 	{"id": "merge", "title": "Слияние", "need": "biz", "text": "Владелец сети предлагает объединить «{biz}» с его бизнесом.",
 	"amt": ["fixed", 0.0], "choices": [
 		{"label": "Объединить", "outcomes": [
-			{"p": 0.6, "text": "Сеть выросла! «{biz}» получает уровень.", "level": 1},
-			{"p": 0.4, "text": "Партнёр увёл клиентов к себе. «{biz}» теряет уровень.", "level": -1}]},
+			{"p": 0.6, "text": "Сеть выросла! Рейтинг «{biz}» растёт.", "level": 1},
+			{"p": 0.4, "text": "Партнёр увёл клиентов к себе. Рейтинг «{biz}» падает.", "level": -1}]},
 		{"label": "Остаться одному", "outcomes": [{"p": 1.0, "text": "Сам себе хозяин."}]}]},
 	{"id": "viral", "title": "Ты в трендах", "need": "biz", "text": "Видео про «{biz}» набрало миллион просмотров!",
 	"amt": ["income", 2.0, 50.0], "choices": [
@@ -123,6 +123,20 @@ const LIST := [
 			{"p": 0.55, "text": "Рынок отскочил! ×2.5", "cash": 1.5},
 			{"p": 0.45, "text": "Дно оказалось не дном.", "cash": -0.6}]},
 		{"label": "Не рисковать", "outcomes": [{"p": 1.0, "text": "Ты наблюдаешь со стороны."}]}]},
+	{"id": "quit", "title": "Сотрудник уходит", "need": "biz", "text": "Лучший работник «{biz}» нашёл место, где платят больше.",
+	"amt": ["income", 1.0, 30.0], "choices": [
+		{"label": "Дать премию {amt}", "outcomes": [
+			{"p": 0.8, "text": "Остался и работает ещё усерднее. Рейтинг растёт.", "cash": -1.0, "level": 1},
+			{"p": 0.2, "text": "Взял премию и всё равно ушёл.", "cash": -1.0, "quit": true}]},
+		{"label": "Пусть уходит", "outcomes": [{"p": 1.0, "text": "Минус один сотрудник. Найми нового, а то очереди.", "quit": true}]}]},
+	{"id": "inspection", "title": "Санитарная проверка", "need": "biz", "text": "В «{biz}» пришла проверка. Если найдут нарушения — штраф {amt}.",
+	"amt": ["biz", 0.1], "choices": [
+		{"label": "Пустить проверяющих", "outcomes": [
+			{"p": 0.65, "text": "Всё чисто. Проверяющие ушли довольные."},
+			{"p": 0.35, "text": "Нашли грязь на кухне. Штраф и минус рейтинг.", "cash": -1.0, "level": -1}]},
+		{"label": "«Мы сегодня закрыты»", "outcomes": [
+			{"p": 0.5, "text": "Проверку перенесли. Пронесло."},
+			{"p": 0.5, "text": "Штраф за препятствие проверке — вдвое больше.", "cash": -2.0}]}]},
 	{"id": "charity", "title": "Просьба о помощи", "text": "Детский дом просит помочь с ремонтом. Нужно {amt}.",
 	"amt": ["cash", 0.05, 30.0], "choices": [
 		{"label": "Помочь", "outcomes": [{"p": 1.0, "text": "Тебя показали в новостях. Доход +25% на 10 дней.", "cash": -1.0, "boost": [1.25, 10]}]},
@@ -137,32 +151,31 @@ static func pick(state: RefCounted, last_id: String) -> Dictionary:
 		if e["id"] == last_id:
 			continue
 		var need: String = e.get("need", "")
-		if need == "biz" and state.businesses.is_empty():
+		if need == "biz" and state.venues.is_empty():
 			continue
 		if need.begins_with("rank:") and state.rank() < int(need.get_slice(":", 1)):
 			continue
 		pool.append(e)
 	var e: Dictionary = pool[randi() % pool.size()].duplicate(true)
-	var biz := ""
-	if not state.businesses.is_empty():
-		var ids: Array = state.businesses.keys()
-		biz = ids[randi() % ids.size()]
+	var biz := -1
+	if not state.venues.is_empty():
+		biz = state.venues[randi() % state.venues.size()]["id"]
 	e["biz_id"] = biz
 	e["amount"] = _amount(e["amt"], state, biz)
 	return e
 
 
-static func _amount(spec: Array, state: RefCounted, biz: String) -> float:
-	var Data := preload("res://scripts/game/data.gd")
+static func _amount(spec: Array, state: RefCounted, biz: int) -> float:
 	match spec[0]:
 		"cash":
 			return roundf(maxf(state.cash * spec[1], spec[2]))
 		"income":
-			return roundf(maxf(state.daily_income() * spec[1], spec[2]))
+			return roundf(maxf(maxf(state.last_day["profit"], 0.0) * spec[1], spec[2]))
 		"worth":
 			return roundf(maxf(state.worth() * spec[1], spec[2]))
 		"biz":
-			return roundf(Data.business(biz)["price"] * spec[1]) if biz != "" else 0.0
+			var v: Dictionary = state.venue(biz)
+			return roundf(v["invested"] * spec[1]) if not v.is_empty() else 0.0
 	return spec[1]
 
 

@@ -1,7 +1,8 @@
 extends Node
-## ОТ НУЛЯ ДО МИЛЛИАРДЕРА: the header with money and status, three tabs
-## (work, business, property), life events with risky choices, hot deals on a
-## timer, new statuses, bankruptcy, saving and money earned while away.
+## ОТ НУЛЯ ДО МИЛЛИАРДЕРА: the header with money and status, four tabs (work,
+## the city map, your businesses, property), the page for running a business,
+## life events with risky choices, hot deals on a timer, new statuses,
+## bankruptcy, saving and the days that pass while away.
 
 const State := preload("res://scripts/game/state.gd")
 const Data := preload("res://scripts/game/data.gd")
@@ -11,6 +12,9 @@ const Icons := preload("res://scripts/ui/icons.gd")
 const Save := preload("res://scripts/save.gd")
 const TouchScroll := preload("res://scripts/ui/touch_scroll.gd")
 const Contract := preload("res://scripts/game/contract.gd")
+const Venue := preload("res://scripts/game/venue.gd")
+const MapView := preload("res://scripts/ui/map_view.gd")
+const VenuePage := preload("res://scripts/ui/venue_page.gd")
 ## One mini-game per job; the status decides which.
 const JOBS := {
 	"flyers": preload("res://scripts/work/flyers.gd"),
@@ -31,9 +35,8 @@ const TABS_H := 190.0
 const EVENT_GAP := Vector2(22, 40)
 const DEAL_GAP := Vector2(45, 80)
 const DEAL_TIME := 15.0
-## Money while away: at most two hours count, at half the usual rate.
+## Time away: at most two hours count, up to 300 game days.
 const AWAY_CAP := 7200.0
-const AWAY_RATE := 0.5
 
 var s: RefCounted
 var root: Control
@@ -54,6 +57,7 @@ var _modal: Control
 var _job: Label
 var _pay: Label
 var _tip: Label
+var _venue_page: Control
 
 var _day_t := 0.0
 var _event_t := 25.0
@@ -68,7 +72,7 @@ var _last_unix := 0.0
 
 func _ready() -> void:
 	var dev := OS.get_cmdline_user_args()
-	var saved: Dictionary = {} if dev.size() > 0 else Save.get_value("life", {})
+	var saved: Dictionary = {} if dev.size() > 0 else Save.get_value("life2", {})
 	s = State.from_dict(saved) if not saved.is_empty() else State.new()
 	_shown = s.cash
 	_rank_seen = s.rank()
@@ -120,6 +124,8 @@ func _process(delta: float) -> void:
 		var change: float = s.next_day()
 		if absf(change) >= 1.0:
 			_float(("+" if change > 0.0 else "") + Data.money(change), Vector2(540, 250), GREEN if change > 0.0 else RED, 40)
+		if _venue_page and is_instance_valid(_venue_page):
+			_venue_page.rebuild()
 		if s.bankrupt:
 			_show_bankrupt()
 			return
@@ -141,7 +147,7 @@ func _notification(what: int) -> void:
 func _save() -> void:
 	_save_t = 0.0
 	if s and OS.get_cmdline_user_args().is_empty():
-		Save.set_value("life", s.to_dict())
+		Save.set_value("life2", s.to_dict())
 		Save.set_value("record", maxf(Save.get_value("record", 0.0), s.best_worth))
 
 
@@ -217,15 +223,16 @@ func _update_header(delta: float) -> void:
 		_flow.text = "ДОЛГ! До банкротства %d дн." % (Data.DEBT_DAYS - s.debt_days)
 		_flow.add_theme_color_override("font_color", RED)
 	else:
-		var inc: float = s.daily_income()
-		var cost: float = s.daily_costs()
-		var text := "+%s в день" % Data.money(inc) if inc > 0.0 else "Пока нет дохода — работай и покупай бизнес"
-		if cost > 0.0:
-			text += "   −%s расходы" % Data.money(cost)
+		var p: float = s.last_day["profit"]
+		var text := ""
+		if s.venues.is_empty():
+			text = "Пока нет бизнеса — работай и копи на первый"
+		else:
+			text = "Вчера: %s%s прибыли" % ["+" if p >= 0.0 else "", Data.money(p)]
 		if s.boost() != 1.0:
-			text += "   ×%.2f" % s.boost()
+			text += "   ×%.2f клиентов" % s.boost()
 		_flow.text = text
-		_flow.add_theme_color_override("font_color", GREEN if inc >= cost else Color("#ffb347"))
+		_flow.add_theme_color_override("font_color", GREEN if p >= 0.0 else Color("#ffb347"))
 	if r + 1 < Data.RANKS.size():
 		var next: Dictionary = Data.RANKS[r + 1]
 		_bar_label.text = "Капитал %s  ·  до статуса «%s» — %s" % [Data.money(s.worth()), next["name"], Data.money(next["worth"])]
@@ -310,14 +317,14 @@ func _build_tabs() -> void:
 	root.add_child(bar)
 	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	bar.offset_top = -TABS_H
-	var items := [["work", "Работа"], ["biz", "Бизнес"], ["prop", "Имущество"]]
+	var items := [["work", "Работа"], ["city", "Город"], ["biz", "Бизнесы"], ["prop", "Имущество"]]
 	for i in items.size():
 		var id: String = items[i][0]
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
 		b.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
-		b.position = Vector2(i * 360, 0)
-		b.size = Vector2(360, TABS_H)
+		b.position = Vector2(i * 270, 0)
+		b.size = Vector2(270, TABS_H)
 		for st in ["normal", "hover", "pressed", "focus"]:
 			b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
 		b.draw.connect(_draw_tab.bind(b, id, items[i][1]))
@@ -331,21 +338,23 @@ func _build_tabs() -> void:
 func _draw_tab(b: Button, id: String, title: String) -> void:
 	var on := _tab == id
 	var col := UI.GOLD if on else Color(1, 1, 1, 0.45)
-	var icon: String = {"work": "coin", "biz": "bank", "prop": "house"}[id]
+	var icon: String = {"work": "coin", "city": "flat", "biz": "bank", "prop": "car"}[id]
+	var cx := b.size.x * 0.5
 	if on:
 		var glow := StyleBoxFlat.new()
 		glow.bg_color = Color(0.96, 0.77, 0.32, 0.12)
 		glow.set_corner_radius_all(40)
-		b.draw_style_box(glow, Rect2(40, 18, 280, 150))
-	Icons.glyph(b, icon, Vector2(180, 74), 0.62)
+		b.draw_style_box(glow, Rect2(20, 18, b.size.x - 40, 150))
+	Icons.glyph(b, icon, Vector2(cx, 74), 0.58)
 	if not on:
-		b.draw_rect(Rect2(110, 30, 140, 90), Color(0.07, 0.07, 0.11, 0.55))
+		b.draw_rect(Rect2(cx - 70, 30, 140, 90), Color(0.07, 0.07, 0.11, 0.55))
 	var f := UI.font(700)
-	var w := f.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
-	b.draw_string(f, Vector2(180 - w * 0.5, 152), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34, col)
+	var w := f.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x
+	b.draw_string(f, Vector2(cx - w * 0.5, 152), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 32, col)
 
 
 func _show_tab(id: String) -> void:
+	_close_venue()
 	_tab = id
 	for k in _pages:
 		_pages[k].visible = k == id
@@ -354,7 +363,7 @@ func _show_tab(id: String) -> void:
 
 
 func _build_pages() -> void:
-	for id in ["work", "biz", "prop"]:
+	for id in ["work", "city", "biz", "prop"]:
 		var page := Control.new()
 		page.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		root.add_child(page)
@@ -371,8 +380,9 @@ func _rebuild_pages() -> void:
 		for c in _pages[id].get_children():
 			c.queue_free()
 	_build_work(_pages["work"])
-	_build_list(_pages["biz"], true)
-	_build_list(_pages["prop"], false)
+	_build_city(_pages["city"])
+	_build_venues(_pages["biz"])
+	_build_props(_pages["prop"])
 
 
 # --- Work -------------------------------------------------------------------------
@@ -435,14 +445,21 @@ func _refresh_work() -> void:
 ## What to do next, in a sentence.
 func _advice() -> String:
 	if s.cash < 0.0:
-		return "Ты в долгах! Работай или жди дохода — иначе через несколько дней банкротство."
-	if s.businesses.is_empty():
-		if s.cash >= Data.BUSINESSES[0]["price"]:
-			return "Хватает на первый бизнес! Открой вкладку «Бизнес» и купи ларёк с шаурмой."
-		return "Работай — зарабатывай. Накопи %s на свой первый бизнес." % Data.money(Data.BUSINESSES[0]["price"])
+		return "Ты в долгах! Работай, сократи расходы или продай что-нибудь — иначе через несколько дней банкротство."
+	if s.venues.is_empty():
+		if s.cash >= Data.BUSINESSES[0]["price"] + 80.0:
+			return "Хватает на первый бизнес! Открой вкладку «Город», выбери свободное место «S» и открой ларёк с шаурмой."
+		return "Работай — копи %s на первый бизнес (с запасом на продукты и зарплату)." % Data.money(Data.BUSINESSES[0]["price"] + 80.0)
+	for v in s.venues:
+		var why := Venue.blocker(v)
+		if why != "" and not why.begins_with("Ремонт"):
+			return "«%s» не работает: %s. Открой его во вкладке «Бизнесы»." % [Venue.kind(v)["name"], why.to_lower()]
+		var r: Dictionary = v["report"]
+		if not r.is_empty() and r["lost"] > r["served"] * 0.25:
+			return "В «%s» уходят клиенты без покупки — найми ещё сотрудников или закупи больше товара." % Venue.kind(v)["name"]
 	if s.owned.is_empty():
-		return "Купи жильё или транспорт во вкладке «Имущество»: статус увеличивает доход всех бизнесов."
-	return "Улучшай бизнесы, покупай новые и рискуй с умом: события могут озолотить — или разорить."
+		return "Купи жильё или транспорт: статус приводит больше клиентов во все твои бизнесы."
+	return "Следи за отчётами: подними цены там, где очереди, сделай ремонт, запусти рекламу, открой точку в районе побогаче."
 
 
 # --- Business and property lists ------------------------------------------------------
@@ -460,7 +477,7 @@ func _card_box(border := Color(1, 1, 1, 0.06)) -> StyleBoxFlat:
 	return sb
 
 
-func _build_list(page: Control, business: bool) -> void:
+func _list_box(page: Control) -> VBoxContainer:
 	var scroll: ScrollContainer = TouchScroll.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
@@ -471,28 +488,170 @@ func _build_list(page: Control, business: bool) -> void:
 	box.add_theme_constant_override("separation", 22)
 	scroll.add_child(box)
 	box.add_child(UI.spacer(30))
-	if business:
-		var shown := 0
-		for b in Data.BUSINESSES:
-			# Owned ones, plus the next two to aim for.
-			if not s.businesses.has(b["id"]):
-				shown += 1
-				if shown > 2:
-					box.add_child(_teaser(b["name"], b["price"]))
-					break
-			box.add_child(_business_card(b))
-	else:
-		for kind in [["home", "Жильё"], ["ride", "Транспорт"]]:
-			var head := UI.label(kind[1], 44, UI.SUB, 800)
-			head.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			var pad := MarginContainer.new()
-			pad.add_theme_constant_override("margin_left", 60)
-			pad.add_child(head)
-			box.add_child(pad)
-			for p in Data.PROPERTY:
-				if p["kind"] == kind[0]:
-					box.add_child(_property_card(p))
+	return box
+
+
+func _build_props(page: Control) -> void:
+	var box := _list_box(page)
+	for kind in [["home", "Жильё"], ["ride", "Транспорт"]]:
+		var head := UI.label(kind[1], 44, UI.SUB, 800)
+		head.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var pad := MarginContainer.new()
+		pad.add_theme_constant_override("margin_left", 60)
+		pad.add_child(head)
+		box.add_child(pad)
+		for p in Data.PROPERTY:
+			if p["kind"] == kind[0]:
+				box.add_child(_property_card(p))
 	box.add_child(UI.spacer(40))
+
+
+# --- The city and your businesses ---------------------------------------------------
+
+func _build_city(page: Control) -> void:
+	var map: Control = MapView.new()
+	map.state = s
+	map.plot_tapped.connect(_on_plot)
+	page.add_child(map)
+	map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	map.offset_top = 10
+
+
+func _on_plot(id: int) -> void:
+	var v: Dictionary = s.venue_at(id)
+	if not v.is_empty():
+		_open_venue(v)
+		return
+	var p: Dictionary = Data.plot(id)
+	var d: Dictionary = Data.DISTRICTS[p["d"]]
+	var box := _open_modal()
+	_modal_text(box, "СВОБОДНОЕ ПОМЕЩЕНИЕ", 32, UI.GOLD, 800)
+	_modal_text(box, "%s · %s" % [d["name"], Data.SIZE_NAMES[p["size"]]], 50, Color.WHITE, 900)
+	_modal_text(box, "Мимо проходит %d человек в день. Достаток жителей: %d из 5. Аренда %s в день." % [
+		int(d["traffic"]), d["wealth"], Data.money(Data.plot_rent(p))], 34, Color("#d8dbe8"), 500)
+	var any := false
+	for b in Data.BUSINESSES:
+		if b["size"] != p["size"]:
+			continue
+		any = true
+		var probe := Venue.make(0, b["id"], id, 0.0)
+		var fit: String = ["плохо подходит", "так себе", "хорошо подходит", "отлично подходит"][clampi(int(Venue.fit(probe) * 3.99), 0, 3)]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 20)
+		row.add_child(_icon(b["id"], b["color"]))
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var n := UI.label(b["name"], 38, Color.WHITE, 800)
+		n.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		col.add_child(n)
+		var info := UI.label("Оборудование %s · району %s" % [Data.money(b["price"]), fit], 28, UI.SUB, 600)
+		info.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		info.custom_minimum_size.x = 420
+		col.add_child(info)
+		row.add_child(col)
+		var go := UI.pill_button("Открыть", UI.GOLD, func() -> void:
+			if s.cash < b["price"]:
+				Sfx.play("no", -6.0)
+				_float("Не хватает денег", Vector2(540, HEADER_H + 230), RED, 46)
+				return
+			_show_contract(Contract.make(b["id"], b["price"], false, id)))
+		go.custom_minimum_size = Vector2(200, 100)
+		go.add_theme_font_size_override("font_size", 34)
+		row.add_child(go)
+		box.add_child(row)
+	if not any:
+		_modal_text(box, "Здесь пока нечего открыть.", 34, UI.SUB, 600)
+	box.add_child(UI.spacer(10))
+	_modal_button(box, "Закрыть", Color("#8f96b8"), _close_modal)
+
+
+func _build_venues(page: Control) -> void:
+	var box := _list_box(page)
+	if s.venues.is_empty():
+		var card := PanelContainer.new()
+		card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.3)))
+		var l := UI.label("У тебя пока нет бизнеса. Открой вкладку «Город», выбери свободное помещение и открой своё дело.", 36, Color.WHITE, 600)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card.add_child(l)
+		box.add_child(_row(card))
+		return
+	for v in s.venues:
+		box.add_child(_venue_card(v))
+	box.add_child(UI.spacer(40))
+
+
+func _venue_card(v: Dictionary) -> Control:
+	var b := Venue.kind(v)
+	var card := PanelContainer.new()
+	var why := Venue.blocker(v)
+	card.add_theme_stylebox_override("panel", _card_box(RED if why != "" and not why.begins_with("Ремонт") else Color(1, 1, 1, 0.06)))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 26)
+	card.add_child(h)
+	h.add_child(_icon(b["id"], b["color"]))
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 4)
+	h.add_child(col)
+	var n := UI.label(b["name"], 40, Color.WHITE, 800)
+	n.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	col.add_child(n)
+	var where := UI.label(Venue.district(v)["name"], 30, UI.SUB, 600)
+	where.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	col.add_child(where)
+	var stars := Control.new()
+	stars.custom_minimum_size = Vector2(240, 36)
+	stars.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stars.draw.connect(func() -> void: Icons.stars(stars, Vector2(0, 18), v["rating"], 5, 15))
+	col.add_child(stars)
+	var r: Dictionary = v["report"]
+	var line := UI.label("", 32, GREEN, 700)
+	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	line.custom_minimum_size.x = 520
+	if why != "":
+		line.text = why
+		line.add_theme_color_override("font_color", RED if not why.begins_with("Ремонт") else Color("#ffb347"))
+	elif not r.is_empty():
+		var p: float = r["profit"]
+		line.text = "Вчера %s%s · %d %s" % ["+" if p >= 0.0 else "", Data.money(p), int(r["served"]), b["client"]]
+		line.add_theme_color_override("font_color", GREEN if p >= 0.0 else RED)
+	else:
+		line.text = "Готов к работе"
+	col.add_child(line)
+	var tap := Button.new()
+	tap.flat = true
+	tap.focus_mode = Control.FOCUS_NONE
+	for st in ["normal", "hover", "pressed", "focus"]:
+		tap.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	card.add_child(tap)
+	tap.pressed.connect(UI.guarded(func() -> void:
+		Sfx.play("click")
+		_open_venue(v)))
+	return _row(card)
+
+
+func _open_venue(v: Dictionary) -> void:
+	_close_venue()
+	_venue_page = VenuePage.new()
+	_venue_page.state = s
+	_venue_page.v = v
+	_venue_page.closed.connect(_close_venue)
+	_venue_page.changed.connect(func() -> void:
+		_rebuild_pages()
+		_check_rank())
+	root.add_child(_venue_page)
+	_venue_page.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_venue_page.offset_top = HEADER_H
+	_venue_page.offset_bottom = -TABS_H
+	root.move_child(_deal_box, -1)
+
+
+func _close_venue() -> void:
+	if _venue_page and is_instance_valid(_venue_page):
+		_venue_page.queue_free()
+	_venue_page = null
 
 
 func _row(card_child: Control) -> MarginContainer:
@@ -501,87 +660,6 @@ func _row(card_child: Control) -> MarginContainer:
 	m.add_theme_constant_override("margin_right", 40)
 	m.add_child(card_child)
 	return m
-
-
-func _business_card(b: Dictionary) -> Control:
-	var id: String = b["id"]
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _card_box())
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 26)
-	card.add_child(h)
-	h.add_child(_icon(id, b["color"]))
-	var v := VBoxContainer.new()
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.add_theme_constant_override("separation", 4)
-	h.add_child(v)
-	var name := UI.label(b["name"], 42, Color.WHITE, 800)
-	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	v.add_child(name)
-	var line := UI.label("", 34, GREEN, 700)
-	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	v.add_child(line)
-	var dots := Control.new()
-	dots.custom_minimum_size = Vector2(300, 26)
-	dots.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	dots.draw.connect(func() -> void:
-		var lvl: int = s.businesses.get(id, 0)
-		for i in Data.MAX_LEVEL:
-			dots.draw_circle(Vector2(12 + i * 30, 13), 10, UI.GOLD if i < lvl else Color(1, 1, 1, 0.1)))
-	v.add_child(dots)
-	var btn := UI.pill_button("", UI.GOLD, func() -> void:
-		var ok: bool
-		if not s.businesses.has(id):
-			if s.cash >= b["price"]:
-				_show_contract(Contract.make(id, b["price"], false))
-			else:
-				Sfx.play("no", -6.0)
-			return
-		ok = s.upgrade_business(id)
-		if ok:
-			Sfx.play("up")
-			_rebuild_pages()
-			_check_rank()
-		else:
-			Sfx.play("no", -6.0))
-	btn.custom_minimum_size = Vector2(250, 110)
-	btn.add_theme_font_size_override("font_size", 34)
-	h.add_child(btn)
-	var refresh := func() -> void:
-		var lvl: int = s.businesses.get(id, 0)
-		line.add_theme_color_override("font_color", GREEN)
-		if s.repairs.has(id):
-			line.text = "На ремонте ещё %d дн. — дохода нет" % s.repairs[id]
-			line.add_theme_color_override("font_color", RED)
-			btn.text = "Улучшить\n" + Data.money(s.upgrade_cost(id))
-			btn.modulate.a = 1.0 if s.cash >= s.upgrade_cost(id) else 0.4
-		elif lvl == 0:
-			line.text = "+%s в день" % Data.money(Data.income_at(b, 1))
-			btn.text = "Купить\n" + Data.money(b["price"])
-			btn.modulate.a = 1.0 if s.cash >= b["price"] else 0.4
-		elif lvl >= Data.MAX_LEVEL:
-			line.text = "+%s в день  ·  максимум" % Data.money(Data.income_at(b, lvl))
-			btn.text = "МАКС"
-			btn.modulate.a = 0.4
-		else:
-			line.text = "+%s → %s в день" % [Data.money(Data.income_at(b, lvl)), Data.money(Data.income_at(b, lvl + 1))]
-			if s.rents.has(id):
-				line.text += "  ·  аренда −%s" % Data.money(s.rents[id])
-			btn.text = "Улучшить\n" + Data.money(s.upgrade_cost(id))
-			btn.modulate.a = 1.0 if s.cash >= s.upgrade_cost(id) else 0.4
-		dots.queue_redraw()
-	refresh.call()
-	_refreshers.append(refresh)
-	return _row(card)
-
-
-func _teaser(name: String, price: float) -> Control:
-	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _card_box())
-	var l := UI.label("Дальше: %s и ещё больше — от %s" % [name, Data.money(price)], 34, UI.SUB, 600)
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	card.add_child(l)
-	return _row(card)
 
 
 func _property_card(p: Dictionary) -> Control:
@@ -599,7 +677,7 @@ func _property_card(p: Dictionary) -> Control:
 	var name := UI.label(p["name"], 40, Color.WHITE, 800)
 	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	v.add_child(name)
-	var perks := UI.label("Статус: доход +%d%%" % roundi(p["prestige"] * 100.0), 32, GREEN, 700)
+	var perks := UI.label("Статус: клиентов +%d%%" % roundi(p["prestige"] * 100.0), 32, GREEN, 700)
 	perks.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	v.add_child(perks)
 	var cost := UI.label("Содержание: %s в день" % Data.money(p["upkeep"]) if p["upkeep"] > 0.0 else "Без расходов", 30, UI.SUB, 600)
@@ -665,8 +743,12 @@ func _tick_deal(delta: float) -> void:
 	var offers := []
 	var budget := maxf(600.0, s.cash * 2.5)
 	for b in Data.BUSINESSES:
-		if not s.businesses.has(b["id"]) and b["price"] <= budget:
-			offers.append({"kind": "biz", "item": b})
+		if b["price"] * 1.3 > budget:
+			continue
+		var free := Data.PLOTS.filter(func(p: Dictionary) -> bool: return p["size"] == b["size"] and s.venue_at(p["id"]).is_empty())
+		if not free.is_empty():
+			var p: Dictionary = free[randi() % free.size()]
+			offers.append({"kind": "biz", "item": b, "plot": p["id"]})
 	for p in Data.PROPERTY:
 		if not s.owned.has(p["id"]) and p["price"] <= budget:
 			offers.append({"kind": "prop", "item": p})
@@ -674,7 +756,9 @@ func _tick_deal(delta: float) -> void:
 		return
 	_deal = offers[randi() % offers.size()]
 	_deal["off"] = randf_range(0.35, 0.6)
-	_deal["price"] = roundf(_deal["item"]["price"] * (1.0 - _deal["off"]))
+	# A ready business comes renovated, staffed and stocked.
+	var base: float = _deal["item"]["price"] * (1.3 if _deal["kind"] == "biz" else 1.0)
+	_deal["price"] = roundf(base * (1.0 - _deal["off"]))
 	_deal["left"] = DEAL_TIME
 	_deal_box.visible = true
 	Sfx.play("ding", -4.0)
@@ -696,9 +780,13 @@ func _draw_deal() -> void:
 	Icons.tile(_deal_box, item["id"], Rect2(22, 22, 126, 126), item.get("color", Color("#c8921d")))
 	var f := UI.font(800)
 	_deal_box.draw_string(f, Vector2(176, 62), "ГОРЯЩАЯ СДЕЛКА  −%d%%" % roundi(_deal["off"] * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 32, Color("#ff5fa2"))
-	_deal_box.draw_string(f, Vector2(176, 112), "%s за %s" % [item["name"], Data.money(_deal["price"])], HORIZONTAL_ALIGNMENT_LEFT, 800, 40, Color.WHITE)
+	var what: String = item["name"]
+	if _deal["kind"] == "biz":
+		what = "Готовый бизнес: %s, %s" % [item["name"], Data.DISTRICTS[Data.plot(_deal["plot"])["d"]]["name"]]
+	_deal_box.draw_string(f, Vector2(176, 104), what, HORIZONTAL_ALIGNMENT_LEFT, 800, 32, Color.WHITE)
+	_deal_box.draw_string(f, Vector2(176, 132), "за " + Data.money(_deal["price"]), HORIZONTAL_ALIGNMENT_LEFT, 800, 28, UI.GOLD)
 	var k: float = _deal["left"] / DEAL_TIME
-	_deal_box.draw_rect(Rect2(176, 134, 780 * k, 10), Color("#ff5fa2"))
+	_deal_box.draw_rect(Rect2(176, 146, 780 * k, 10), Color("#ff5fa2"))
 
 
 func _take_deal() -> void:
@@ -707,7 +795,7 @@ func _take_deal() -> void:
 	if _deal["kind"] == "biz":
 		# Hot deals come with contracts too, and cheap ones hide traps more often.
 		if s.cash >= _deal["price"]:
-			var c := Contract.make(_deal["item"]["id"], _deal["price"], true)
+			var c := Contract.make(_deal["item"]["id"], _deal["price"], true, _deal["plot"], true)
 			_deal = {}
 			_deal_box.visible = false
 			_show_contract(c)
@@ -795,8 +883,9 @@ func _modal_button(box: VBoxContainer, text: String, color: Color, on_press: Cal
 
 func _fill(text: String, e: Dictionary) -> String:
 	var biz := ""
-	if e.get("biz_id", "") != "":
-		biz = Data.business(e["biz_id"])["name"]
+	var v: Dictionary = s.venue(e.get("biz_id", -1))
+	if not v.is_empty():
+		biz = Venue.kind(v)["name"]
 	return text.replace("{amt}", Data.money(e["amount"])).replace("{biz}", biz)
 
 
@@ -880,24 +969,32 @@ func _show_bankrupt() -> void:
 		_close_modal())
 
 
+## The days that passed while the game was closed are played out for real:
+## businesses without a manager may run out of stock.
 func _welcome_back(seconds: float) -> void:
-	var t := minf(seconds, AWAY_CAP)
-	var days := t / Data.DAY
-	var earned: float = maxf(0.0, (s.daily_income() - s.daily_costs()) * days * AWAY_RATE)
-	if earned < 1.0 or _modal:
+	if _modal:
 		return
-	s.cash += earned
-	s.day += int(days)
+	var days := mini(int(minf(seconds, AWAY_CAP) / Data.DAY), 300)
+	if days < 3 or s.venues.is_empty():
+		return
+	var before: float = s.cash
+	for i in days:
+		s.next_day()
+		if s.bankrupt:
+			break
+	var earned: float = s.cash - before
 	_shown = s.cash
 	var box := _open_modal()
 	_modal_text(box, "С возвращением!", 60, Color.WHITE, 900)
-	_modal_text(box, "Пока тебя не было, бизнес заработал", 42, Color("#d8dbe8"), 500)
-	var l := _modal_text(box, "+" + Data.money(earned), 110, GREEN, 900)
-	UI.glow(l, Color(GREEN, 0.5), 20)
+	_modal_text(box, "Пока тебя не было, прошло %d дн. Бизнес заработал" % days, 42, Color("#d8dbe8"), 500)
+	var l := _modal_text(box, ("+" if earned >= 0.0 else "") + Data.money(earned), 110, GREEN if earned >= 0.0 else RED, 900)
+	UI.glow(l, Color(GREEN if earned >= 0.0 else RED, 0.5), 20)
 	box.add_child(UI.spacer(20))
 	_modal_button(box, "Забрать", UI.GOLD, func() -> void:
 		Sfx.play("coin")
-		_close_modal())
+		_close_modal()
+		if s.bankrupt:
+			_show_bankrupt())
 
 
 # --- Contracts --------------------------------------------------------------------
@@ -942,16 +1039,18 @@ func _show_contract(c: Dictionary) -> void:
 
 
 func _sign(c: Dictionary) -> void:
-	if not s.buy_business(c["biz"], c["price"]):
+	var v: Dictionary = s.open_venue(c["biz"], c["plot"], c["price"], c["ready"])
+	if v.is_empty():
 		Sfx.play("no", -6.0)
 		_close_modal()
 		return
-	var note := Contract.apply(c, s)
+	var note := Contract.apply(c, s, v)
 	if note == "":
 		Sfx.play("up")
 		_close_modal()
-		_float("Бизнес твой!", Vector2(540, HEADER_H + 230), UI.GOLD, 56)
 		_check_rank()
+		_open_venue(v)
+		_float("Бизнес твой! Найми людей и закупи товар", Vector2(540, HEADER_H + 230), UI.GOLD, 44)
 		return
 	var good: bool = c["trap"]["kind"] == "bonus"
 	_modal.queue_free()
@@ -963,7 +1062,8 @@ func _sign(c: Dictionary) -> void:
 	box.add_child(UI.spacer(10))
 	_modal_button(box, "Понятно", UI.GOLD, func() -> void:
 		_close_modal()
-		_check_rank())
+		_check_rank()
+		_open_venue(v))
 	Sfx.play("fanfare" if good else "no", -4.0)
 
 

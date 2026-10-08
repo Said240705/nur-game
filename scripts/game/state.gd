@@ -1,24 +1,24 @@
 extends RefCounted
-## The player's life as data: cash, businesses with levels, property, temporary
-## income boosts, debt, and what a day of business brings in and costs.
+## The player's life as data: cash, the businesses (venues) at their addresses,
+## property, temporary boosts from events, debt, and what a day brings.
 
 const Data := preload("res://scripts/game/data.gd")
+const Venue := preload("res://scripts/game/venue.gd")
 
 var cash := Data.START_CASH
 var day := 1
-## Business id -> level.
-var businesses := {}
+## Businesses the player runs (see venue.gd).
+var venues: Array = []
 ## Property id -> true.
 var owned := {}
-## Hidden contract terms the player signed: business id -> rent per day,
-## business id -> days closed for repairs.
-var rents := {}
-var repairs := {}
-## [[multiplier, days left], …]
+## [[multiplier, days left], …]: events making customers come more or less.
 var boosts: Array = []
 var debt_days := 0
 var best_worth := 0.0
 var bankrupt := false
+var _next_id := 1
+## Totals of the last day for the header.
+var last_day := {"cash": 0.0, "profit": 0.0}
 
 
 func rank() -> int:
@@ -39,30 +39,32 @@ func boost() -> float:
 	return m
 
 
-func daily_income() -> float:
-	var total := 0.0
-	for id in businesses:
-		if repairs.get(id, 0) <= 0:
-			total += Data.income_at(Data.business(id), businesses[id])
-	return total * (1.0 + prestige()) * boost()
+func venue(id: int) -> Dictionary:
+	for v in venues:
+		if v["id"] == id:
+			return v
+	return {}
 
 
-func daily_costs() -> float:
+func venue_at(plot: int) -> Dictionary:
+	for v in venues:
+		if v["plot"] == plot:
+			return v
+	return {}
+
+
+func upkeep() -> float:
 	var total := 0.0
 	for id in owned:
 		total += Data.property(id)["upkeep"]
-	for id in rents:
-		if businesses.has(id):
-			total += rents[id]
 	return total
 
 
 ## Cash plus what businesses and property would sell for.
 func worth() -> float:
 	var w := cash
-	for id in businesses:
-		var b := Data.business(id)
-		w += b["price"] * (1.0 + 0.3 * (businesses[id] - 1)) * 0.8
+	for v in venues:
+		w += Venue.value(v) + v["stock"] * Venue.kind(v)["unit"]
 	for id in owned:
 		w += Data.property(id)["price"] * 0.6
 	return w
@@ -70,13 +72,18 @@ func worth() -> float:
 
 ## One day passes. Returns the cash change.
 func next_day() -> float:
-	var delta := daily_income() - daily_costs()
-	cash += delta
+	var before := cash
+	var profit := 0.0
+	# Status (prestige from property) brings more customers everywhere.
+	var crowd := boost() * (1.0 + prestige())
+	for v in venues:
+		_auto_restock(v)
+		var r := Venue.day(v, crowd)
+		cash += r["cash"]
+		profit += r["profit"]
+	cash -= upkeep()
+	profit -= upkeep()
 	day += 1
-	for id in repairs.keys():
-		repairs[id] -= 1
-		if repairs[id] <= 0:
-			repairs.erase(id)
 	for b in boosts:
 		b[1] -= 1
 	boosts = boosts.filter(func(b: Array) -> bool: return b[1] > 0)
@@ -87,33 +94,79 @@ func next_day() -> float:
 	else:
 		debt_days = 0
 	best_worth = maxf(best_worth, worth())
-	return delta
+	last_day = {"cash": cash - before, "profit": profit}
+	return cash - before
 
 
-func work_pay() -> float:
-	return Data.RANKS[rank()]["pay"]
+## A manager orders goods for five days when less than two are left.
+func _auto_restock(v: Dictionary) -> void:
+	if not Venue.has_manager(v) or not Venue.uses_stock(v):
+		return
+	var r := Venue.restock(v, 5)
+	if v["stock"] < r["qty"] * 0.4 and cash >= r["cost"]:
+		cash -= r["cost"]
+		v["stock"] += r["qty"]
 
 
-func buy_business(id: String, price := -1.0) -> bool:
-	var b := Data.business(id)
-	var p: float = b["price"] if price < 0.0 else price
-	if businesses.has(id) or cash < p:
+# --- Running a business ------------------------------------------------------------
+
+## Opens a business on a free plot. `ready` sets it up as a going concern.
+func open_venue(type: String, plot: int, price: float, ready := false) -> Dictionary:
+	if cash < price or not venue_at(plot).is_empty():
+		return {}
+	cash -= price
+	var v := Venue.make(_next_id, type, plot, price)
+	_next_id += 1
+	if ready:
+		v["reno"] = 1
+		var serve: Dictionary = Venue.kind(v)["roles"][0]
+		v["staff"][serve["id"]] = maxi(1, ceili(Venue.demand(v) / serve["cap"]))
+		if Venue.uses_stock(v):
+			v["stock"] = ceilf(minf(Venue.demand(v), Venue.capacity(v)) * 3.0)
+	venues.append(v)
+	return v
+
+
+func hire(v: Dictionary, role: String, delta: int) -> bool:
+	var n: int = v["staff"].get(role, 0) + delta
+	var limit := 1 if role == "manager" else Data.MAX_STAFF
+	if n < 0 or n > limit:
 		return false
-	cash -= p
-	businesses[id] = 1
+	v["staff"][role] = n
 	return true
 
 
-func upgrade_cost(id: String) -> float:
-	return Data.upgrade_cost(Data.business(id), businesses[id])
-
-
-func upgrade_business(id: String) -> bool:
-	if not businesses.has(id) or businesses[id] >= Data.MAX_LEVEL or cash < upgrade_cost(id):
+func buy_stock(v: Dictionary, days: int) -> bool:
+	var r := Venue.restock(v, days)
+	if cash < r["cost"]:
 		return false
-	cash -= upgrade_cost(id)
-	businesses[id] += 1
+	cash -= r["cost"]
+	v["stock"] += r["qty"]
 	return true
+
+
+func renovation_cost(v: Dictionary) -> float:
+	if v["reno"] >= Data.RENOVATION.size() - 1:
+		return -1.0
+	return Venue.kind(v)["price"] * Data.RENOVATION[v["reno"] + 1]["cost"]
+
+
+func renovate(v: Dictionary) -> bool:
+	var c := renovation_cost(v)
+	if c < 0.0 or cash < c or v["closed"] > 0:
+		return false
+	cash -= c
+	v["reno"] += 1
+	v["closed"] = Data.RENOVATION[v["reno"]]["days"]
+	v["invested"] += c
+	return true
+
+
+func sell_venue(v: Dictionary, price := -1.0) -> float:
+	var got := Venue.value(v) if price < 0.0 else price
+	cash += got + v["stock"] * Venue.kind(v)["unit"] * 0.5
+	venues.erase(v)
+	return got
 
 
 func buy_property(id: String, price := -1.0) -> bool:
@@ -125,37 +178,49 @@ func buy_property(id: String, price := -1.0) -> bool:
 	return true
 
 
-## Applies what an event did. `amount` is the event's sum, `biz` its business.
-func apply(outcome: Dictionary, amount: float, biz: String) -> void:
+## Applies what an event did. `amount` is the event's sum, `biz` the venue id.
+func apply(outcome: Dictionary, amount: float, biz: int) -> void:
 	cash += outcome.get("cash", 0.0) * amount
 	if outcome.has("boost"):
 		boosts.append([outcome["boost"][0], outcome["boost"][1]])
-	if outcome.has("level") and businesses.has(biz):
-		businesses[biz] = clampi(businesses[biz] + outcome["level"], 1, Data.MAX_LEVEL)
-	if outcome.get("sell", false) and businesses.has(biz):
-		businesses.erase(biz)
-		rents.erase(biz)
-		repairs.erase(biz)
-		cash += amount
+	var v := venue(biz)
+	if v.is_empty():
+		return
+	if outcome.has("level"):
+		v["rating"] = clampf(v["rating"] + 0.8 * outcome["level"], 1.0, 5.0)
+	if outcome.get("sell", false):
+		sell_venue(v, amount)
+	if outcome.has("quit"):
+		for r in Venue.kind(v)["roles"]:
+			if v["staff"].get(r["id"], 0) > 0:
+				v["staff"][r["id"]] -= 1
+				break
 
 
 func to_dict() -> Dictionary:
-	return {"cash": cash, "day": day, "businesses": businesses, "owned": owned.keys(), "boosts": boosts,
-		"rents": rents, "repairs": repairs,
-		"debt_days": debt_days, "best_worth": best_worth, "saved_at": Time.get_unix_time_from_system()}
+	return {"cash": cash, "day": day, "venues": venues, "owned": owned.keys(), "boosts": boosts,
+		"debt_days": debt_days, "best_worth": best_worth, "next_id": _next_id,
+		"saved_at": Time.get_unix_time_from_system()}
 
 
 static func from_dict(d: Dictionary) -> RefCounted:
 	var s: RefCounted = load("res://scripts/game/state.gd").new()
 	s.cash = d.get("cash", Data.START_CASH)
 	s.day = d.get("day", 1)
-	for id in d.get("businesses", {}):
-		s.businesses[id] = int(d["businesses"][id])
+	s.venues = d.get("venues", [])
+	for v in s.venues:
+		v["id"] = int(v["id"])
+		v["plot"] = int(v["plot"])
+		v["reno"] = int(v["reno"])
+		v["price_lv"] = int(v["price_lv"])
+		v["ads"] = int(v["ads"])
+		v["closed"] = int(v["closed"])
+		for r in v["staff"]:
+			v["staff"][r] = int(v["staff"][r])
 	for id in d.get("owned", []):
 		s.owned[id] = true
 	s.boosts = d.get("boosts", [])
-	s.rents = d.get("rents", {})
-	s.repairs = d.get("repairs", {})
 	s.debt_days = d.get("debt_days", 0)
 	s.best_worth = d.get("best_worth", 0.0)
+	s._next_id = d.get("next_id", 1)
 	return s

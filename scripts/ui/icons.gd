@@ -127,6 +127,20 @@ static func glyph(c: CanvasItem, id: String, m: Vector2, s: float) -> void:
 			c.draw_string(f, m + Vector2(-ts.x * 0.5, size * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.45))
 
 
+## A row of `count` stars filled up to `value` (e.g. a 3.6 rating).
+static func stars(c: CanvasItem, left: Vector2, value: float, count: int, r: float) -> void:
+	for i in count:
+		var m := left + Vector2(r + i * r * 2.3, 0)
+		var pts := PackedVector2Array()
+		for k in 10:
+			var a := -PI * 0.5 + k * PI / 5.0
+			pts.append(m + Vector2.from_angle(a) * (r if k % 2 == 0 else r * 0.45))
+		var fill := clampf(value - i, 0.0, 1.0)
+		c.draw_colored_polygon(pts, Color(1, 1, 1, 0.15))
+		if fill > 0.0:
+			c.draw_colored_polygon(pts, Color(1.0, 0.83, 0.28, 0.35 + 0.65 * fill))
+
+
 ## A side view of a car; `sport` 0 = boxy old car, 1 = low sports car.
 static func _car(c: CanvasItem, p: Callable, sport: float) -> void:
 	var roof := lerpf(-24, -12, sport)
