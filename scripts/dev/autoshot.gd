@@ -1,6 +1,6 @@
 extends Node
 ## Developer tool: plays by itself and saves screenshots.
-##   godot --path . -- --shots=DIR --mode=title|play|over
+##   godot --path . -- --shots=DIR --mode=title|play|lines|over
 
 const Shapes := preload("res://scripts/game/shapes.gd")
 
@@ -49,6 +49,25 @@ func _ready() -> void:
 					await _shot("play_%02d" % move)
 			await _wait(0.5)
 			await _shot("play_end")
+		"lines":
+			# A row and a column one move from full, and a piece dragged into the gap.
+			_main.Save.set_value("learned", false)
+			game._hint.visible = true
+			game._hint.modulate.a = 1.0
+			game.new_round()
+			for i in 7:
+				game.board.cells[7 * 8 + (i if i < 6 else 7)] = i % 7 + 1
+				game.board.cells[i * 8 + 6] = (i + 3) % 7 + 1
+			game.pieces[0] = {"shape": 0, "color": 1, "placed": false, "pos": game._slot(0), "scale": game.TRAY_SCALE}
+			game.paused = false
+			await _wait(0.8)
+			game._drag = 0
+			game._move(game.view.position + game.view.cell_center(Vector2i(6, 7)) + Vector2(0, game.LIFT))
+			await _wait(0.5)
+			await _shot("lines")
+			game._drop()
+			await _wait(0.15)
+			await _shot("lines_burst")
 		"over":
 			game.new_round()
 			for i in 64:

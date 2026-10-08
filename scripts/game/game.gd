@@ -47,6 +47,10 @@ var _best: Label
 var _tray: Control
 var _tray_y := 0.0
 var _combo: Label
+## Shown until the player clears a first line.
+var _hint: Label
+## When the word on screen is gone, so the next one waits its turn.
+var _word_free_at := 0.0
 
 
 func _ready() -> void:
@@ -71,6 +75,9 @@ func _ready() -> void:
 	_combo = UI.label("", 44, UI.GOLD, 800)
 	_combo.modulate.a = 0.0
 	add_child(_combo)
+	_hint = UI.label("Заполни ряд или столбец целиком —\nон взорвётся. Цвет не важен.", 40, UI.SUB, 500)
+	_hint.visible = not Save.get_value("learned", false)
+	add_child(_hint)
 	best = Save.get_value("best", 0)
 	resized.connect(_layout)
 
@@ -92,6 +99,8 @@ func _layout() -> void:
 	_tray.size = size
 	fx.size = size
 	_tray_y = view.position.y + board_w + (h - view.position.y - board_w) * 0.47
+	_hint.position = Vector2(0, view.position.y + board_w + 24)
+	_hint.size = Vector2(w, 110)
 	queue_redraw()
 
 
@@ -224,6 +233,9 @@ func _place(i: int, at: Vector2i) -> void:
 	var n: int = lines["rows"].size() + lines["cols"].size()
 	var spot := view.position + view.cell_center(Vector2i(roundi(middle.x), roundi(middle.y)))
 	if n > 0:
+		if _hint.visible:
+			Save.set_value("learned", true)
+			_hint.create_tween().tween_property(_hint, "modulate:a", 0.0, 0.6).finished.connect(_hint.hide)
 		streak += 1
 		since_clear = 0
 		var gone := board.clear(lines)
@@ -295,8 +307,14 @@ func _word(text: String, color: Color) -> void:
 	l.position = Vector2(0, view.position.y + view.size.y * 0.5 - 100)
 	l.pivot_offset = l.size * 0.5
 	l.scale = Vector2(0.4, 0.4)
+	l.modulate.a = 0.0
 	add_child(l)
+	var now := Time.get_ticks_msec() / 1000.0
+	var delay := maxf(0.0, _word_free_at - now)
+	_word_free_at = now + delay + 1.0
 	var tw := l.create_tween()
+	tw.tween_interval(delay)
+	tw.tween_property(l, "modulate:a", 1.0, 0.01)
 	tw.tween_property(l, "scale", Vector2(1.0, 1.0), 0.35).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.tween_interval(0.5)
 	tw.tween_property(l, "modulate:a", 0.0, 0.35)

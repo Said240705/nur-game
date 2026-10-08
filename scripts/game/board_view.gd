@@ -1,8 +1,9 @@
 extends Control
 ## Draws the board: a glass panel with empty slots, glowing gem blocks, the
-## ghost of the piece being dragged (the lines it would finish light up in its
-## colour), a pop when blocks land, the burst of cleared lines and the slow
-## turn to stone when the round is over.
+## ghost of the piece being dragged (the lines it would finish shimmer under a
+## glowing band, so it is clear they are about to burst), a pop when blocks
+## land, the burst of cleared lines and the slow turn to stone when the round
+## is over.
 
 const Board := preload("res://scripts/game/board.gd")
 const Blocks := preload("res://scripts/game/blocks.gd")
@@ -18,6 +19,7 @@ var _pop := {}
 var _clearing: Array = []
 var _ghost := {}
 var _lit := {}
+var _lines := {"rows": [], "cols": []}
 var _stone := -1.0
 var _t := 0.0
 var _panel: StyleBoxFlat
@@ -77,6 +79,7 @@ func grid_at(local: Vector2) -> Vector2i:
 
 func show_ghost(shape: Array[Vector2i], pos: Vector2i, color: int, lines: Dictionary) -> void:
 	_ghost = {"shape": shape, "pos": pos, "color": color}
+	_lines = lines
 	_lit = {}
 	for r in lines["rows"]:
 		for x in Board.N:
@@ -89,6 +92,7 @@ func show_ghost(shape: Array[Vector2i], pos: Vector2i, color: int, lines: Dictio
 func hide_ghost() -> void:
 	_ghost = {}
 	_lit = {}
+	_lines = {"rows": [], "cols": []}
 
 
 func popped(cells: Array) -> void:
@@ -135,7 +139,15 @@ func _draw() -> void:
 	for y in Board.N:
 		for x in Board.N:
 			draw_style_box(_slot, Rect2(cell_pos(Vector2i(x, y)), Vector2(cell, cell)))
-	var pulse := 0.85 + 0.15 * sin(_t * 9.0)
+	# Lines about to burst: a glowing band under them. Colours do not matter,
+	# only that the line is full.
+	var pulse := 0.5 + 0.5 * sin(_t * 8.0)
+	var band := Color(1, 1, 1, 0.13 + 0.12 * pulse)
+	var span := Board.N * pitch() - GAP
+	for r in _lines["rows"]:
+		draw_rect(Rect2(Vector2(PAD - 6, cell_pos(Vector2i(0, r)).y - 6), Vector2(span + 12, cell + 12)), band)
+	for c in _lines["cols"]:
+		draw_rect(Rect2(Vector2(cell_pos(Vector2i(c, 0)).x - 6, PAD - 6), Vector2(cell + 12, span + 12)), band)
 	for y in Board.N:
 		for x in Board.N:
 			var c := Vector2i(x, y)
@@ -143,19 +155,22 @@ func _draw() -> void:
 			if v == 0:
 				continue
 			var tint := Color.WHITE
+			var s := 1.0
 			if _lit.has(c):
-				v = _ghost["color"]
-				tint = Color(pulse + 0.15, pulse + 0.15, pulse + 0.15)
+				# Each block in a line about to burst shivers and brightens.
+				var b := 1.1 + 0.2 * pulse
+				tint = Color(b, b, b)
+				s = 1.0 + 0.05 * sin(_t * 22.0 + x + y)
 			if _stone >= 0.0 and y < _stone:
 				v = Blocks.STONE
-			var s := 1.0
 			if _pop.has(c):
 				var k: float = _pop[c] / POP_TIME
 				s = 1.0 + 0.16 * sin(k * PI) * (1.0 - k * 0.5)
 			_block(c, v, s, tint)
 	if not _ghost.is_empty():
 		for o in _ghost["shape"]:
-			_block(_ghost["pos"] + o, _ghost["color"], 1.0, Color(1, 1, 1, 0.38))
+			var lit: bool = _lit.has(_ghost["pos"] + o)
+			_block(_ghost["pos"] + o, _ghost["color"], 1.0, Color(1, 1, 1, 0.75 if lit else 0.45))
 	for e in _clearing:
 		var t: float = e["t"]
 		if t < 0.0:
@@ -186,9 +201,7 @@ func _draw_glow() -> void:
 			var v := board.at(c)
 			if v == 0 or (_stone >= 0.0 and y < _stone):
 				continue
-			if _lit.has(c):
-				v = _ghost["color"]
-			_halo(tex, c, Blocks.color(v), 0.11 if not _lit.has(c) else 0.3)
+			_halo(tex, c, Color.WHITE if _lit.has(c) else Blocks.color(v), 0.11 if not _lit.has(c) else 0.22)
 	for e in _clearing:
 		var t: float = maxf(e["t"], 0.0)
 		_halo(tex, e["cell"], Blocks.color(e["color"]), 0.6 * (1.0 - t / CLEAR_TIME))
