@@ -71,6 +71,30 @@ static func pill_button(text: String, color: Color, on_press: Callable) -> Butto
 	return b
 
 
+## A text button without a background.
+static func flat_button(text: String, size_px: int, color: Color, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_override("font", font(700))
+	b.add_theme_font_size_override("font_size", size_px)
+	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(k, color)
+	for st in ["normal", "hover", "pressed", "focus"]:
+		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
+	b.pressed.connect(func() -> void:
+		Sfx.play("click")
+		on_press.call())
+	return b
+
+
+static func spacer(h: float) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size.y = h
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return c
+
+
 ## 12 480 rather than 12480.
 static func number(n: int) -> String:
 	var s := str(n)

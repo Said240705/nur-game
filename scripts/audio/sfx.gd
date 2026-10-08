@@ -16,16 +16,17 @@ var _music: AudioStreamPlayer
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	_streams["pick"] = _wav(_tones([[1560.0, 0.0]], 0.08, 0.18, 60.0))
-	_streams["place"] = _wav(_thock())
-	_streams["miss"] = _wav(_tones([[330.0, 0.0], [262.0, 0.07]], 0.3, 0.22, 14.0))
-	# A rising chime; the pitch climbs with the combo.
-	_streams["clear"] = _wav(_tones([[1046.5, 0.0], [1318.5, 0.05], [1568.0, 0.1], [2093.0, 0.15]], 0.9, 0.2, 6.0))
-	_streams["big"] = _wav(_sparkle())
-	_streams["deal"] = _wav(_swoosh())
-	_streams["over"] = _wav(_tones([[523.3, 0.0], [440.0, 0.18], [349.2, 0.36], [261.6, 0.56]], 1.6, 0.22, 3.5))
-	_streams["record"] = _wav(_tones([[523.3, 0.0], [659.3, 0.1], [784.0, 0.2], [1046.5, 0.3], [1318.5, 0.42]], 1.6, 0.2, 3.0))
 	_streams["click"] = _wav(_tones([[880.0, 0.0]], 0.08, 0.15, 50.0))
+	_streams["no"] = _wav(_tones([[330.0, 0.0], [262.0, 0.07]], 0.3, 0.22, 14.0))
+	# Ore tipped into a crate.
+	_streams["drop"] = _wav(_thock())
+	# The lift arriving at the top.
+	_streams["ding"] = _wav(_tones([[1318.5, 0.0], [1760.0, 0.12]], 0.9, 0.12, 5.0))
+	# Coins: a bright cha-ching.
+	_streams["coin"] = _wav(_tones([[1975.5, 0.0], [2637.0, 0.07]], 0.5, 0.16, 9.0))
+	_streams["up"] = _wav(_tones([[784.0, 0.0], [988.0, 0.06], [1175.0, 0.12]], 0.6, 0.18, 8.0))
+	_streams["fanfare"] = _wav(_tones([[523.3, 0.0], [659.3, 0.1], [784.0, 0.2], [1046.5, 0.3], [1318.5, 0.42]], 1.6, 0.2, 3.0))
+	_streams["boost"] = _wav(_sparkle())
 	for i in 12:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
@@ -124,17 +125,4 @@ func _sparkle() -> PackedFloat32Array:
 			if lt >= 0.0:
 				s += sin(TAU * note[0] * lt) * exp(-lt * 9.0)
 		out[i] = s * 0.06
-	return out
-
-
-## Air rushing past, for new pieces sliding in.
-func _swoosh() -> PackedFloat32Array:
-	var n := int(0.35 * RATE)
-	var out := PackedFloat32Array()
-	out.resize(n)
-	var lp := 0.0
-	for i in n:
-		var k := float(i) / n
-		lp += (randf() * 2.0 - 1.0 - lp) * (0.05 + 0.3 * k)
-		out[i] = lp * sin(PI * k) * 0.5
 	return out

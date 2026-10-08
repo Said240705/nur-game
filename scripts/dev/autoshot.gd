@@ -1,12 +1,13 @@
 extends Node
-## Developer tool: plays by itself and saves screenshots.
-##   godot --path . -- --shots=DIR --mode=title|play|lines|over
+## Developer tool: plays the first minutes by itself and saves screenshots.
+##   godot --path . -- --shots=DIR --mode=start|grow|deep
+## Uses a fresh mine, so it never touches a real save.
 
-const Shapes := preload("res://scripts/game/shapes.gd")
+const Mine := preload("res://scripts/game/mine.gd")
 
 var _main: Node
 var _dir := "user://shots"
-var _mode := "play"
+var _mode := "start"
 
 
 func setup(main: Node, args: PackedStringArray) -> void:
@@ -20,87 +21,64 @@ func setup(main: Node, args: PackedStringArray) -> void:
 
 func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(_dir)
-	var game: Node = _main.game
+	var m: RefCounted = Mine.new()
+	_use(m)
 	match _mode:
-		"title":
-			_main._title(false)
-			await _wait(1.5)
-			await _shot("title")
-		"play":
-			game.new_round()
-			game.paused = false
+		"start":
 			await _wait(1.0)
-			await _shot("play_0")
-			# Drag the first piece by hand to show the ghost.
-			var p: Dictionary = game.pieces[0]
-			game._drag = 0
-			game._move(game.view.position + game.view.cell_center(Vector2i(3, 3)) + Vector2(0, game.LIFT))
-			await _wait(0.6)
-			await _shot("play_drag")
-			game._drag = -1
-			game.view.hide_ghost()
-			for move in 40:
-				if game.over:
-					break
-				_auto_move(game)
-				await _wait(0.12)
-				if move in [6, 14, 22]:
-					await _wait(0.15)
-					await _shot("play_%02d" % move)
-			await _wait(0.5)
-			await _shot("play_end")
-		"lines":
-			# A row and a column one move from full, and a piece dragged into the gap.
-			_main.Save.set_value("learned", false)
-			game._hint.visible = true
-			game._hint.modulate.a = 1.0
-			game.new_round()
-			for i in 7:
-				game.board.cells[7 * 8 + (i if i < 6 else 7)] = i % 7 + 1
-				game.board.cells[i * 8 + 6] = (i + 3) % 7 + 1
-			game.pieces[0] = {"shape": 0, "color": 1, "placed": false, "pos": game._slot(0), "scale": game.TRAY_SCALE}
-			game.paused = false
-			await _wait(0.8)
-			game._drag = 0
-			game._move(game.view.position + game.view.cell_center(Vector2i(6, 7)) + Vector2(0, game.LIFT))
-			await _wait(0.5)
-			await _shot("lines")
-			game._drop()
-			await _wait(0.15)
-			await _shot("lines_burst")
-		"over":
-			game.new_round()
-			for i in 64:
-				game.board.cells[i] = (i % 7) + 1 if i % 5 != 0 else 0
-			game.paused = false
-			game._check_over()
-			await _wait(3.5)
-			await _shot("over")
+			await _shot("start")
+			m.tap("shaft:0")
+			await _wait(2.0)
+			await _shot("digging")
+			await _wait(2.5)
+			m.tap("lift")
+			await _wait(1.6)
+			await _shot("lift")
+			await _wait(1.5)
+			m.tap("cart")
+			await _wait(2.8)
+			await _shot("sold")
+		"grow":
+			m.coins = 5000.0
+			m.upgrade("shaft:0", 10)
+			m.hire("shaft:0")
+			m.hire("lift")
+			m.hire("cart")
+			m.open_shaft()
+			m.hire("shaft:1")
+			await _wait(6.0)
+			await _shot("grow")
+			_main._open_sheet("shaft:1")
+			await _wait(1.0)
+			await _shot("sheet")
+		"deep":
+			m.coins = 1e14
+			for i in 9:
+				m.open_shaft()
+			for i in m.shafts.size():
+				m.upgrade("shaft:%d" % i, 30)
+				m.hire("shaft:%d" % i)
+			m.hire("lift")
+			m.hire("cart")
+			m.upgrade("lift", 60)
+			await _wait(4.0)
+			_main.world.scroll = 1400.0
+			await _wait(1.0)
+			await _shot("deep")
+			_main.world.scroll = _main.world.max_scroll()
+			await _wait(1.0)
+			await _shot("bottom")
+			_main._welcome_back(3600.0)
+			await _wait(1.0)
+			await _shot("away")
 	get_tree().quit()
 
 
-## Places some piece where it clears the most lines, as a greedy player would.
-func _auto_move(game: Node) -> void:
-	var best := -1
-	var best_at := Vector2i.ZERO
-	var best_i := -1
-	for i in 3:
-		var p: Dictionary = game.pieces[i]
-		if p["placed"]:
-			continue
-		var shape := Shapes.cells(p["shape"])
-		for y in 8:
-			for x in 8:
-				var at := Vector2i(x, y)
-				if game.board.can_place(shape, at):
-					var l: Dictionary = game.board.lines_if_placed(shape, at)
-					var v: int = (l["rows"].size() + l["cols"].size()) * 100 + y * 3 + x
-					if v > best:
-						best = v
-						best_at = at
-						best_i = i
-	if best_i >= 0:
-		game._place(best_i, best_at)
+func _use(m: RefCounted) -> void:
+	_main.mine = m
+	_main.world.mine = m
+	_main.sheet.mine = m
+	_main._shown = 0.0
 
 
 func _wait(s: float) -> void:
