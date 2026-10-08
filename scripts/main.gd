@@ -10,6 +10,16 @@ const UI := preload("res://scripts/ui/ui.gd")
 const Icons := preload("res://scripts/ui/icons.gd")
 const Save := preload("res://scripts/save.gd")
 const TouchScroll := preload("res://scripts/ui/touch_scroll.gd")
+const Contract := preload("res://scripts/game/contract.gd")
+## One mini-game per job; the status decides which.
+const JOBS := {
+	"flyers": preload("res://scripts/work/flyers.gd"),
+	"courier": preload("res://scripts/work/courier.gd"),
+	"taxi": preload("res://scripts/work/taxi.gd"),
+	"negotiation": preload("res://scripts/work/negotiation.gd"),
+	"papers": preload("res://scripts/work/papers.gd"),
+	"stocks": preload("res://scripts/work/stocks.gd"),
+}
 
 const BG := Color("#0d0e15")
 const CARD := Color("#171a26")
@@ -41,10 +51,8 @@ var _refreshers: Array = []
 var _deal_box: Control
 var _deal := {}
 var _modal: Control
-var _work_btn: Control
 var _job: Label
 var _pay: Label
-var _goal: Label
 var _tip: Label
 
 var _day_t := 0.0
@@ -371,38 +379,36 @@ func _rebuild_pages() -> void:
 
 func _build_work(page: Control) -> void:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 18)
+	box.add_theme_constant_override("separation", 14)
 	page.add_child(box)
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	box.offset_left = 50
-	box.offset_right = -50
-	box.offset_top = 50
-	_job = UI.label("", 50, Color.WHITE, 800)
+	box.offset_left = 30
+	box.offset_right = -30
+	box.offset_top = 30
+	box.offset_bottom = -20
+	var r: Dictionary = Data.RANKS[s.rank()]
+	_job = UI.label(r["job"], 50, Color.WHITE, 800)
 	box.add_child(_job)
-	_pay = UI.label("", 38, GREEN, 700)
+	_pay = UI.label("%s за удачу" % Data.money(r["pay"]), 34, GREEN, 700)
 	box.add_child(_pay)
-	var holder := CenterContainer.new()
-	holder.custom_minimum_size = Vector2(0, 560)
-	box.add_child(holder)
-	_work_btn = Control.new()
-	_work_btn.custom_minimum_size = Vector2(500, 500)
-	_work_btn.pivot_offset = Vector2(250, 250)
-	_work_btn.draw.connect(_draw_work_button.bind(_work_btn))
-	holder.add_child(_work_btn)
-	var b := Button.new()
-	b.focus_mode = Control.FOCUS_NONE
-	b.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
-	for st in ["normal", "hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(st, StyleBoxEmpty.new())
-	_work_btn.add_child(b)
-	b.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	b.pressed.connect(_on_work)
-	_goal = UI.label("", 36, UI.SUB, 600)
-	_goal.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(_goal)
+	var frame := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.set_corner_radius_all(36)
+	sb.border_color = Color(1, 1, 1, 0.08)
+	sb.set_border_width_all(3)
+	frame.add_theme_stylebox_override("panel", sb)
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	box.add_child(frame)
+	var game: Control = JOBS[r["game"]].new()
+	game.pay = r["pay"]
+	if r["game"] == "negotiation":
+		game.title = "Клиент выбирает франшизу" if s.rank() == 3 else "Клиент решает, нанять ли тебя"
+	game.earned.connect(_on_earned)
+	frame.add_child(game)
 	var tip_card := PanelContainer.new()
 	tip_card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.25)))
-	_tip = UI.label("", 36, Color.WHITE, 600)
+	_tip = UI.label("", 32, Color.WHITE, 600)
 	_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tip_card.add_child(_tip)
 	box.add_child(tip_card)
@@ -410,37 +416,19 @@ func _build_work(page: Control) -> void:
 	_refresh_work()
 
 
-func _draw_work_button(btn: Control) -> void:
-	var c := btn.size * 0.5
-	for i in 10:
-		var k := 1.0 - i / 10.0
-		btn.draw_circle(c, 250 * k, Color(0.96, 0.77, 0.32, 0.03))
-	btn.draw_circle(c, 200, Color("#c8921d"))
-	btn.draw_circle(c + Vector2(0, -8), 192, UI.GOLD)
-	btn.draw_circle(c + Vector2(-50, -70), 60, Color(1, 1, 1, 0.18))
-	btn.draw_arc(c + Vector2(0, -8), 150, 0, TAU, 64, Color("#c8921d"), 10, true)
-	var f := UI.font(900)
-	var t := "$"
-	var w := f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, 210).x
-	btn.draw_string(f, c + Vector2(-w * 0.5, 66), t, HORIZONTAL_ALIGNMENT_LEFT, -1, 210, Color("#8a5a0a"))
-
-
-func _on_work() -> void:
-	var pay: float = s.work()
-	Sfx.play("coin", -10.0, randf_range(0.95, 1.1))
-	Input.vibrate_handheld(10)
-	var tw := _work_btn.create_tween()
-	_work_btn.scale = Vector2(0.92, 0.92)
-	tw.tween_property(_work_btn, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	var at := _work_btn.get_global_rect().get_center() + Vector2(randf_range(-110, 110), randf_range(-150, -90))
-	_float("+" + Data.money(pay), at, UI.GOLD, 60)
+func _on_earned(amount: float, at: Vector2, note: String) -> void:
+	s.cash += amount
+	if absf(amount) >= 1.0:
+		_float(("+" if amount > 0.0 else "") + Data.money(amount), at, GREEN if amount > 0.0 else RED, 60)
+		Sfx.play("coin" if amount > 0.0 else "no", -8.0 if amount > 0.0 else -4.0, randf_range(0.95, 1.1))
+		Input.vibrate_handheld(10 if amount > 0.0 else 40)
+	elif note != "":
+		Sfx.play("no", -10.0)
+	if note != "":
+		_float(note, at + Vector2(0, -70), Color.WHITE, 40)
 
 
 func _refresh_work() -> void:
-	var r: Dictionary = Data.RANKS[s.rank()]
-	_job.text = r["job"]
-	_pay.text = "+%s за касание" % Data.money(r["pay"])
-	_goal.text = "Лучший капитал: %s   ·   Рекорд: %s" % [Data.money(s.best_worth), Data.money(maxf(Save.get_value("record", 0.0), s.best_worth))]
 	_tip.text = _advice()
 
 
@@ -451,7 +439,7 @@ func _advice() -> String:
 	if s.businesses.is_empty():
 		if s.cash >= Data.BUSINESSES[0]["price"]:
 			return "Хватает на первый бизнес! Открой вкладку «Бизнес» и купи ларёк с шаурмой."
-		return "Касайся монеты — зарабатывай. Накопи %s на свой первый бизнес." % Data.money(Data.BUSINESSES[0]["price"])
+		return "Работай — зарабатывай. Накопи %s на свой первый бизнес." % Data.money(Data.BUSINESSES[0]["price"])
 	if s.owned.is_empty():
 		return "Купи жильё или транспорт во вкладке «Имущество»: статус увеличивает доход всех бизнесов."
 	return "Улучшай бизнесы, покупай новые и рискуй с умом: события могут озолотить — или разорить."
@@ -543,10 +531,13 @@ func _business_card(b: Dictionary) -> Control:
 	v.add_child(dots)
 	var btn := UI.pill_button("", UI.GOLD, func() -> void:
 		var ok: bool
-		if s.businesses.has(id):
-			ok = s.upgrade_business(id)
-		else:
-			ok = s.buy_business(id)
+		if not s.businesses.has(id):
+			if s.cash >= b["price"]:
+				_show_contract(Contract.make(id, b["price"], false))
+			else:
+				Sfx.play("no", -6.0)
+			return
+		ok = s.upgrade_business(id)
 		if ok:
 			Sfx.play("up")
 			_rebuild_pages()
@@ -558,7 +549,13 @@ func _business_card(b: Dictionary) -> Control:
 	h.add_child(btn)
 	var refresh := func() -> void:
 		var lvl: int = s.businesses.get(id, 0)
-		if lvl == 0:
+		line.add_theme_color_override("font_color", GREEN)
+		if s.repairs.has(id):
+			line.text = "На ремонте ещё %d дн. — дохода нет" % s.repairs[id]
+			line.add_theme_color_override("font_color", RED)
+			btn.text = "Улучшить\n" + Data.money(s.upgrade_cost(id))
+			btn.modulate.a = 1.0 if s.cash >= s.upgrade_cost(id) else 0.4
+		elif lvl == 0:
 			line.text = "+%s в день" % Data.money(Data.income_at(b, 1))
 			btn.text = "Купить\n" + Data.money(b["price"])
 			btn.modulate.a = 1.0 if s.cash >= b["price"] else 0.4
@@ -568,6 +565,8 @@ func _business_card(b: Dictionary) -> Control:
 			btn.modulate.a = 0.4
 		else:
 			line.text = "+%s → %s в день" % [Data.money(Data.income_at(b, lvl)), Data.money(Data.income_at(b, lvl + 1))]
+			if s.rents.has(id):
+				line.text += "  ·  аренда −%s" % Data.money(s.rents[id])
 			btn.text = "Улучшить\n" + Data.money(s.upgrade_cost(id))
 			btn.modulate.a = 1.0 if s.cash >= s.upgrade_cost(id) else 0.4
 		dots.queue_redraw()
@@ -705,11 +704,18 @@ func _draw_deal() -> void:
 func _take_deal() -> void:
 	if _deal.is_empty():
 		return
-	var ok: bool
 	if _deal["kind"] == "biz":
-		ok = s.buy_business(_deal["item"]["id"], _deal["price"])
-	else:
-		ok = s.buy_property(_deal["item"]["id"], _deal["price"])
+		# Hot deals come with contracts too, and cheap ones hide traps more often.
+		if s.cash >= _deal["price"]:
+			var c := Contract.make(_deal["item"]["id"], _deal["price"], true)
+			_deal = {}
+			_deal_box.visible = false
+			_show_contract(c)
+		else:
+			Sfx.play("no", -6.0)
+			_float("Не хватает денег", Vector2(540, HEADER_H + 230), RED, 46)
+		return
+	var ok: bool = s.buy_property(_deal["item"]["id"], _deal["price"])
 	if ok:
 		Sfx.play("fanfare", -2.0)
 		_float("Куплено со скидкой!", Vector2(540, HEADER_H + 230), UI.GOLD, 54)
@@ -848,7 +854,7 @@ func _show_rank_up(r: int) -> void:
 	_modal_text(box, "НОВЫЙ СТАТУС", 34, UI.GOLD, 800)
 	var name := _modal_text(box, Data.RANKS[r]["name"], 96, Color.WHITE, 900)
 	UI.glow(name, Color(0.96, 0.77, 0.32, 0.6), 24)
-	_modal_text(box, "Новая работа: %s — %s за касание" % [Data.RANKS[r]["job"], Data.money(Data.RANKS[r]["pay"])], 40, Color("#d8dbe8"), 600)
+	_modal_text(box, "Новая работа: %s — %s за удачу" % [Data.RANKS[r]["job"], Data.money(Data.RANKS[r]["pay"])], 40, Color("#d8dbe8"), 600)
 	if r == Data.RANKS.size() - 1:
 		_modal_text(box, "Ты сделал это: от нуля до миллиарда за %d дней!" % s.day, 44, GREEN, 800)
 	box.add_child(UI.spacer(20))
@@ -892,6 +898,100 @@ func _welcome_back(seconds: float) -> void:
 	_modal_button(box, "Забрать", UI.GOLD, func() -> void:
 		Sfx.play("coin")
 		_close_modal())
+
+
+# --- Contracts --------------------------------------------------------------------
+
+## The purchase agreement: read it, sign it, ask to change it, or walk away.
+func _show_contract(c: Dictionary) -> void:
+	if _modal:
+		_modal.queue_free()
+		_modal = null
+	var box := _open_modal()
+	_modal_text(box, "ДОГОВОР КУПЛИ-ПРОДАЖИ", 32, UI.GOLD, 800)
+	_modal_text(box, "%s · %s" % [Data.business(c["biz"])["name"], Data.money(c["price"])], 50, Color.WHITE, 900)
+	var scroll: ScrollContainer = TouchScroll.new()
+	scroll.custom_minimum_size = Vector2(870, minf(760.0, root.size.y * 0.36))
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	box.add_child(scroll)
+	var paper := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color("#f4efe2")
+	sb.set_corner_radius_all(20)
+	sb.content_margin_left = 34
+	sb.content_margin_right = 34
+	sb.content_margin_top = 30
+	sb.content_margin_bottom = 30
+	paper.add_theme_stylebox_override("panel", sb)
+	paper.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(paper)
+	var lines := VBoxContainer.new()
+	lines.add_theme_constant_override("separation", 18)
+	paper.add_child(lines)
+	for clause in c["clauses"]:
+		var l := UI.label(clause, 31, Color("#3a3a48"), 500)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size.x = 780
+		lines.add_child(l)
+	_modal_button(box, "Подписать", UI.GOLD, _sign.bind(c))
+	_modal_button(box, "Потребовать убрать пункт", Color("#8f96b8"), _haggle.bind(c))
+	var no := UI.flat_button("Отказаться от сделки", 38, UI.SUB, _close_modal)
+	box.add_child(no)
+
+
+func _sign(c: Dictionary) -> void:
+	if not s.buy_business(c["biz"], c["price"]):
+		Sfx.play("no", -6.0)
+		_close_modal()
+		return
+	var note := Contract.apply(c, s)
+	if note == "":
+		Sfx.play("up")
+		_close_modal()
+		_float("Бизнес твой!", Vector2(540, HEADER_H + 230), UI.GOLD, 56)
+		_check_rank()
+		return
+	var good: bool = c["trap"]["kind"] == "bonus"
+	_modal.queue_free()
+	_modal = null
+	var box := _open_modal()
+	_modal_text(box, "Сюрприз в договоре" if good else "Надо было читать договор!", 54, GREEN if good else RED, 900)
+	_modal_text(box, c["trap"]["text"], 34, Color("#d8dbe8"), 500)
+	_modal_text(box, note, 42, Color.WHITE, 800)
+	box.add_child(UI.spacer(10))
+	_modal_button(box, "Понятно", UI.GOLD, func() -> void:
+		_close_modal()
+		_check_rank())
+	Sfx.play("fanfare" if good else "no", -4.0)
+
+
+## Asking to strike a clause: right when there is a trap, insulting when not.
+func _haggle(c: Dictionary) -> void:
+	var bad := Contract.is_bad(c)
+	_modal.queue_free()
+	_modal = null
+	var box := _open_modal()
+	if bad and randf() < 0.75:
+		var clean := c.duplicate(true)
+		clean["clauses"].erase(c["trap"]["text"])
+		clean["trap"] = {}
+		_modal_text(box, "Продавец покраснел и вычеркнул пункт", 50, GREEN, 900)
+		_modal_text(box, "«" + c["trap"]["text"] + "»", 34, Color("#d8dbe8"), 500)
+		_modal_text(box, "Ты спас себя от ловушки. Теперь договор чистый.", 40, Color.WHITE, 700)
+		_modal_button(box, "Подписать чистый договор", UI.GOLD, _sign.bind(clean))
+		_modal_button(box, "Всё равно отказаться", Color("#8f96b8"), _close_modal)
+		Sfx.play("fanfare", -4.0)
+	elif bad:
+		_modal_text(box, "Продавец понял, что ты его раскусил, и ушёл", 50, UI.GOLD, 900)
+		_modal_text(box, "Зато ты не попал в ловушку.", 40, Color.WHITE, 700)
+		_modal_button(box, "Ладно", UI.GOLD, _close_modal)
+	else:
+		_modal_text(box, "«Какой ещё пункт?»", 54, Color.WHITE, 900)
+		_modal_text(box, "Договор был честным. Продавец обиделся на недоверие и отказался от сделки.", 40, Color("#d8dbe8"), 600)
+		_modal_button(box, "Эх", UI.GOLD, _close_modal)
+		Sfx.play("no", -4.0)
 
 
 # --- Effects ----------------------------------------------------------------------

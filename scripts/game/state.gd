@@ -10,6 +10,10 @@ var day := 1
 var businesses := {}
 ## Property id -> true.
 var owned := {}
+## Hidden contract terms the player signed: business id -> rent per day,
+## business id -> days closed for repairs.
+var rents := {}
+var repairs := {}
 ## [[multiplier, days left], …]
 var boosts: Array = []
 var debt_days := 0
@@ -38,7 +42,8 @@ func boost() -> float:
 func daily_income() -> float:
 	var total := 0.0
 	for id in businesses:
-		total += Data.income_at(Data.business(id), businesses[id])
+		if repairs.get(id, 0) <= 0:
+			total += Data.income_at(Data.business(id), businesses[id])
 	return total * (1.0 + prestige()) * boost()
 
 
@@ -46,6 +51,9 @@ func daily_costs() -> float:
 	var total := 0.0
 	for id in owned:
 		total += Data.property(id)["upkeep"]
+	for id in rents:
+		if businesses.has(id):
+			total += rents[id]
 	return total
 
 
@@ -65,6 +73,10 @@ func next_day() -> float:
 	var delta := daily_income() - daily_costs()
 	cash += delta
 	day += 1
+	for id in repairs.keys():
+		repairs[id] -= 1
+		if repairs[id] <= 0:
+			repairs.erase(id)
 	for b in boosts:
 		b[1] -= 1
 	boosts = boosts.filter(func(b: Array) -> bool: return b[1] > 0)
@@ -80,12 +92,6 @@ func next_day() -> float:
 
 func work_pay() -> float:
 	return Data.RANKS[rank()]["pay"]
-
-
-func work() -> float:
-	var pay := work_pay()
-	cash += pay
-	return pay
 
 
 func buy_business(id: String, price := -1.0) -> bool:
@@ -128,11 +134,14 @@ func apply(outcome: Dictionary, amount: float, biz: String) -> void:
 		businesses[biz] = clampi(businesses[biz] + outcome["level"], 1, Data.MAX_LEVEL)
 	if outcome.get("sell", false) and businesses.has(biz):
 		businesses.erase(biz)
+		rents.erase(biz)
+		repairs.erase(biz)
 		cash += amount
 
 
 func to_dict() -> Dictionary:
 	return {"cash": cash, "day": day, "businesses": businesses, "owned": owned.keys(), "boosts": boosts,
+		"rents": rents, "repairs": repairs,
 		"debt_days": debt_days, "best_worth": best_worth, "saved_at": Time.get_unix_time_from_system()}
 
 
@@ -145,6 +154,8 @@ static func from_dict(d: Dictionary) -> RefCounted:
 	for id in d.get("owned", []):
 		s.owned[id] = true
 	s.boosts = d.get("boosts", [])
+	s.rents = d.get("rents", {})
+	s.repairs = d.get("repairs", {})
 	s.debt_days = d.get("debt_days", 0)
 	s.best_worth = d.get("best_worth", 0.0)
 	return s

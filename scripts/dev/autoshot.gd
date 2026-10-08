@@ -1,11 +1,13 @@
 extends Node
 ## Developer tool: plays a little by itself and saves screenshots.
-##   godot --path . -- --shots=DIR --mode=tour
+##   godot --path . -- --shots=DIR --mode=jobs|contract
 ## Starts from a fresh life and never touches the real save.
+
+const Contract := preload("res://scripts/game/contract.gd")
 
 var _main: Node
 var _dir := "user://shots"
-var _mode := "tour"
+var _mode := "jobs"
 
 
 func setup(main: Node, args: PackedStringArray) -> void:
@@ -20,56 +22,42 @@ func setup(main: Node, args: PackedStringArray) -> void:
 func _ready() -> void:
 	DirAccess.make_dir_recursive_absolute(_dir)
 	var s: RefCounted = _main.s
-	_main._event_t = 999.0
-	_main._deal_t = 999.0
-	await _wait(1.0)
-	await _shot("work")
-	for i in 5:
-		_main._on_work()
-		await _wait(0.08)
-	await _wait(0.2)
-	await _shot("work_tap")
-	s.cash = 25000.0
-	s.buy_business("shawarma")
-	s.upgrade_business("shawarma")
-	s.upgrade_business("shawarma")
-	s.buy_business("wash")
-	s.buy_property("room")
-	s.buy_property("bike")
+	_main._event_t = 9999.0
+	_main._deal_t = 9999.0
 	_main._rank_seen = 99
-	_main._rebuild_pages()
-	_main._show_tab("biz")
-	await _wait(1.0)
-	await _shot("biz")
-	_main._show_tab("prop")
-	await _wait(0.6)
-	await _shot("prop")
-	_main._show_tab("work")
-	_main._deal_t = 0.0
-	await _wait(1.0)
-	await _shot("deal")
-	_main._event_t = 0.0
-	await _wait(0.8)
-	await _shot("event")
-	# Take the first choice.
-	for b in _main._modal.find_children("*", "Button", true, false):
-		b.pressed.emit()
-		break
-	await _wait(0.8)
-	await _shot("outcome")
-	_main._close_modal()
-	_main._rank_seen = 2
-	s.cash = 2e6
-	_main._check_rank()
-	await _wait(0.8)
-	await _shot("rank")
-	_main._close_modal()
-	_main._event_t = 999.0
-	s.cash = -1e9
-	s.debt_days = 6
-	await _wait(3.5)
-	await _shot("bankrupt")
+	match _mode:
+		"jobs":
+			# One screenshot per job: set the capital to each status in turn.
+			for r in [0, 1, 2, 3, 5, 7]:
+				s.cash = _main.Data.RANKS[r]["worth"] + 10.0
+				_main._rebuild_pages()
+				await _wait(1.6)
+				var game := _game()
+				if game:
+					for i in 3:
+						game.tap(game.size * Vector2(0.5, 0.6))
+						await _wait(0.3)
+				await _wait(0.4)
+				await _shot("job_%d" % r)
+		"contract":
+			s.cash = 5000.0
+			var c := Contract.make("wash", 4000.0, true)
+			while not Contract.is_bad(c):
+				c = Contract.make("wash", 4000.0, true)
+			_main._show_contract(c)
+			await _wait(1.2)
+			await _shot("contract")
+			_main._sign(c)
+			await _wait(1.0)
+			await _shot("contract_signed")
 	get_tree().quit()
+
+
+func _game() -> Control:
+	for n in _main._pages["work"].find_children("*", "Control", true, false):
+		if n.has_signal("earned"):
+			return n
+	return null
 
 
 func _wait(t: float) -> void:

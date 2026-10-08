@@ -8,17 +8,18 @@ const START_CASH := 100.0
 const DEBT_DAYS := 7
 const MAX_LEVEL := 10
 
-## Statuses by net worth; each one also pays more per tap at work.
+## Statuses by net worth; each has its own job (a mini-game in scripts/work/)
+## and pays more per success.
 const RANKS := [
-	{"name": "Бездомный", "worth": 0.0, "job": "Раздавать листовки", "pay": 3.0},
-	{"name": "Студент", "worth": 1e3, "job": "Курьер на велосипеде", "pay": 8.0},
-	{"name": "Работяга", "worth": 1e4, "job": "Таксист", "pay": 25.0},
-	{"name": "Предприниматель", "worth": 1e5, "job": "Продавать франшизы", "pay": 90.0},
-	{"name": "Миллионер", "worth": 1e6, "job": "Консультировать бизнес", "pay": 350.0},
-	{"name": "Бизнесмен", "worth": 1e7, "job": "Закрывать сделки", "pay": 1.5e3},
-	{"name": "Магнат", "worth": 1e8, "job": "Выступать на форумах", "pay": 6e3},
-	{"name": "Олигарх", "worth": 5e8, "job": "Лоббировать законы", "pay": 2.5e4},
-	{"name": "Миллиардер", "worth": 1e9, "job": "Управлять империей", "pay": 1e5},
+	{"name": "Бездомный", "worth": 0.0, "job": "Раздавать листовки", "pay": 3.0, "game": "flyers"},
+	{"name": "Студент", "worth": 1e3, "job": "Курьер", "pay": 8.0, "game": "courier"},
+	{"name": "Работяга", "worth": 1e4, "job": "Таксист", "pay": 25.0, "game": "taxi"},
+	{"name": "Предприниматель", "worth": 1e5, "job": "Продавать франшизы", "pay": 90.0, "game": "negotiation"},
+	{"name": "Миллионер", "worth": 1e6, "job": "Консультировать бизнес", "pay": 350.0, "game": "negotiation"},
+	{"name": "Бизнесмен", "worth": 1e7, "job": "Закрывать сделки", "pay": 1.5e3, "game": "papers"},
+	{"name": "Магнат", "worth": 1e8, "job": "Проверять контракты холдинга", "pay": 6e3, "game": "papers"},
+	{"name": "Олигарх", "worth": 5e8, "job": "Играть на бирже", "pay": 2.5e4, "game": "stocks"},
+	{"name": "Миллиардер", "worth": 1e9, "job": "Двигать рынки", "pay": 1e5, "game": "stocks"},
 ]
 
 ## Price, income per day at level 1 and colour of the icon tile.
