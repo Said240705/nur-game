@@ -1240,13 +1240,44 @@ func _property_card(p: Dictionary) -> Control:
 	cost.custom_minimum_size.x = 400
 	v.add_child(cost)
 	if has:
-		var mine := UI.label("Твоё", 40, UI.GOLD, 900)
-		mine.custom_minimum_size = Vector2(210, 0)
-		h.add_child(mine)
+		h.add_child(_rent_column(id))
+		if s.rented.has(id):
+			perks.text = "Сдаётся: жильцы платят %s в день" % Data.money(State.rent_of(id))
+			perks.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			perks.custom_minimum_size.x = 400
 	else:
 		h.add_child(_buy_column("", p["price"], p, "Смотреть", func() -> void: _show_home(p, p["price"])))
 	return _row(card)
 
+
+## An owned home: where the hero lives, or one he can let and take back.
+func _rent_column(id: String) -> Control:
+	var col := VBoxContainer.new()
+	col.custom_minimum_size.x = 210
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 10)
+	var net: float = State.rent_of(id) - Data.property(id)["upkeep"]
+	var btn: Button
+	if s.rented.has(id):
+		col.add_child(UI.label("+%s\nв день" % Data.money(net), 28, GREEN, 800))
+		btn = UI.pill_button("Въехать", Color("#8f96b8"), func() -> void:
+			s.move_back(id)
+			_rebuild_pages())
+	elif s.can_rent(id):
+		col.add_child(UI.label("Сдать за\n+%s/день" % Data.money(net), 26, UI.SUB, 700))
+		btn = UI.pill_button("Сдать", UI.GOLD, func() -> void:
+			if s.rent_out(id):
+				Sfx.play("coin", -4.0)
+				_float("Сдано: +%s в день" % Data.money(net), Vector2(540, HEADER_H + 230), GREEN, 44)
+				_rebuild_pages())
+	else:
+		var mine := UI.label("Ты живёшь\nздесь", 32, UI.GOLD, 900)
+		col.add_child(mine)
+		return col
+	btn.custom_minimum_size = Vector2(190, 82)
+	btn.add_theme_font_size_override("font_size", 30)
+	col.add_child(btn)
+	return col
 
 func _icon(id: String, color: Color) -> Control:
 	var c := Control.new()
@@ -1572,10 +1603,12 @@ func _welcome_back(seconds: float) -> void:
 	var before: float = s.cash
 	var energy_before: float = s.energy
 	var upkeep := 0.0
+	var rent := 0.0
 	var passed := 0
 	s.away = true
 	for i in days:
 		upkeep += s.upkeep()
+		rent += s.rent_income()
 		s.next_day()
 		passed += 1
 		for v in s.venues:
@@ -1622,6 +1655,8 @@ func _welcome_back(seconds: float) -> void:
 	var summary := VBoxContainer.new()
 	summary.add_theme_constant_override("separation", 4)
 	box.add_child(summary)
+	if rent > 0.0:
+		_stat(summary, "Аренда от жильцов", "+" + Data.money(rent))
 	if upkeep > 0.0:
 		_stat(summary, "Жильё и транспорт", "−" + Data.money(upkeep))
 	_stat(summary, "Энергия", "%d → %d" % [int(energy_before), int(s.energy)])

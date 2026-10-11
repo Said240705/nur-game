@@ -26,6 +26,8 @@ var day := 1
 var venues: Array = []
 ## Property id -> true (homes and vehicles alike).
 var owned := {}
+## Homes let to tenants: id -> true. They bring rent but give no rest or status.
+var rented := {}
 ## Vehicles: class id -> the car bought (see cars.gd), with its condition.
 var garage := {}
 ## A vehicle that broke down today and waits for a decision ("" if none).
@@ -71,11 +73,41 @@ func rank_name(r: int) -> String:
 	return Origin.info(origin)["rank0"] if r == 0 else Data.RANKS[r]["name"]
 
 
+## A home the hero lives in (not one let to tenants).
 func has_home() -> bool:
-	for id in owned:
-		if Data.property(id)["kind"] == "home":
-			return true
-	return false
+	return not _lived_in().is_empty()
+
+
+func _lived_in() -> Array:
+	return owned.keys().filter(func(id: String) -> bool: return Data.property(id)["kind"] == "home" and not rented.has(id))
+
+
+## Rent a home brings per day, before its upkeep.
+static func rent_of(id: String) -> float:
+	return roundf(Data.property(id)["upkeep"] * 2.2 / 100.0) * 100.0
+
+
+func rent_income() -> float:
+	var total := 0.0
+	for id in rented:
+		total += rent_of(id)
+	return total
+
+
+## A home can be let while the hero has another one to live in.
+func can_rent(id: String) -> bool:
+	return owned.has(id) and not rented.has(id) and Data.property(id)["kind"] == "home" and _lived_in().size() > 1
+
+
+func rent_out(id: String) -> bool:
+	if not can_rent(id):
+		return false
+	rented[id] = true
+	return true
+
+
+func move_back(id: String) -> void:
+	rented.erase(id)
 
 
 ## An oligarch's son can buy anything at once; others wait for the status.
@@ -105,7 +137,8 @@ func self_healing() -> bool:
 func prestige() -> float:
 	var p := 0.0
 	for id in owned:
-		p += Data.property(id)["prestige"]
+		if not rented.has(id):
+			p += Data.property(id)["prestige"]
 	return p
 
 
@@ -132,9 +165,12 @@ func venue_at(plot: int) -> Dictionary:
 
 ## Energy back per day: a little anyway, more in a better home or on a yacht.
 func rest() -> float:
+	# The hero sleeps in the best home he lives in.
 	var r := Data.REST
-	for id in owned:
-		r += Data.property(id).get("rest", 0.0)
+	var home := 0.0
+	for id in _lived_in():
+		home = maxf(home, Data.property(id).get("rest", 0.0))
+	r += home
 	for cls in _working_vehicles():
 		r += Cars.CLASSES[cls]["rest"]
 	if mind >= Origin.LOW:
@@ -237,8 +273,8 @@ func next_day() -> float:
 		var r := Venue.day(v, crowd)
 		cash += r["cash"]
 		profit += r["profit"]
-	cash -= upkeep()
-	profit -= upkeep()
+	cash += rent_income() - upkeep()
+	profit += rent_income() - upkeep()
 	day += 1
 	if not on_shift:
 		energy = minf(100.0, energy + rest())
@@ -390,7 +426,7 @@ func apply(outcome: Dictionary, amount: float, biz: int) -> void:
 func to_dict() -> Dictionary:
 	return {"cash": cash, "day": day, "venues": venues, "owned": owned.keys(), "boosts": boosts,
 		"debt_days": debt_days, "best_worth": best_worth, "next_id": _next_id, "energy": energy, "garage": garage,
-		"origin": origin, "mind": mind, "story": story.keys(), "calm": calm,
+		"origin": origin, "mind": mind, "rented": rented.keys(), "story": story.keys(), "calm": calm,
 		"saved_at": Time.get_unix_time_from_system()}
 
 
@@ -424,4 +460,7 @@ static func from_dict(d: Dictionary) -> RefCounted:
 	for id in d.get("story", ["s_start"]):
 		s.story[id] = true
 	s.calm = d.get("calm", false)
+	for id in d.get("rented", []):
+		if s.owned.has(id):
+			s.rented[id] = true
 	return s

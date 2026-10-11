@@ -143,6 +143,11 @@ func _ready() -> void:
 			_main._rebuild_pages()
 			_main._show_tab("prop")
 			await _wait(1.0)
+			s.owned["room"] = true
+			s.owned["flat"] = true
+			s.rent_out("room")
+			_main._rebuild_pages()
+			await _wait(0.6)
 			await _shot("props_top")
 			var scroll: ScrollContainer = _main._pages["prop"].get_child(0)
 			scroll.scroll_vertical = 1300

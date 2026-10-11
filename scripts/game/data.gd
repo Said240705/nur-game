@@ -2,7 +2,7 @@ extends RefCounted
 ## Everything you can earn, buy and become, from a pile of flyers to an oil
 ## company. One game day passes every DAY seconds.
 
-const DAY := 4.0
+const DAY := 8.0
 const START_CASH := 10000.0
 ## Days in debt before the bank takes everything.
 const DEBT_DAYS := 7
@@ -10,7 +10,7 @@ const DEBT_DAYS := 7
 ## Energy (0…100) comes back a little every day; better housing means better rest.
 const SHIFT_TIME := 30.0
 const SHIFT_ENERGY := 35.0
-const REST := 3.0
+const REST := 6.0
 const MAX_LEVEL := 10
 
 ## Statuses by net worth; each has its own job (a mini-game in scripts/work/)
@@ -142,11 +142,11 @@ const ADS := [
 ## Homes and rides: they cost upkeep every day, but status (prestige) makes
 ## every business earn more. `rank` is the status from which one can buy it.
 const PROPERTY := [
-	{"id": "room", "kind": "home", "rank": 0, "name": "Комната в общаге", "price": 30000.0, "upkeep": 500.0, "prestige": 0.03, "rest": 2.0},
-	{"id": "flat", "kind": "home", "rank": 1, "name": "Своя квартира", "price": 1.2e6, "upkeep": 6000.0, "prestige": 0.06, "rest": 3.0},
-	{"id": "house", "kind": "home", "rank": 3, "name": "Дом за городом", "price": 3e7, "upkeep": 90000.0, "prestige": 0.1, "rest": 4.0},
-	{"id": "penthouse", "kind": "home", "rank": 5, "name": "Пентхаус", "price": 8e8, "upkeep": 2e6, "prestige": 0.18, "rest": 5.0},
-	{"id": "mansion", "kind": "home", "rank": 7, "name": "Особняк у моря", "price": 1.5e10, "upkeep": 3e7, "prestige": 0.3, "rest": 7.0},
+	{"id": "room", "kind": "home", "rank": 0, "name": "Комната в общаге", "price": 30000.0, "upkeep": 500.0, "prestige": 0.03, "rest": 4.0},
+	{"id": "flat", "kind": "home", "rank": 1, "name": "Своя квартира", "price": 1.2e6, "upkeep": 6000.0, "prestige": 0.06, "rest": 6.0},
+	{"id": "house", "kind": "home", "rank": 3, "name": "Дом за городом", "price": 3e7, "upkeep": 90000.0, "prestige": 0.1, "rest": 8.0},
+	{"id": "penthouse", "kind": "home", "rank": 5, "name": "Пентхаус", "price": 8e8, "upkeep": 2e6, "prestige": 0.18, "rest": 10.0},
+	{"id": "mansion", "kind": "home", "rank": 7, "name": "Особняк у моря", "price": 1.5e10, "upkeep": 3e7, "prestige": 0.3, "rest": 14.0},
 	{"id": "bike", "kind": "ride", "rank": 0, "name": "Велосипед", "price": 15000.0, "upkeep": 0.0, "prestige": 0.02},
 	{"id": "oldcar", "kind": "ride", "rank": 1, "name": "Подержанная машина", "price": 5e5, "upkeep": 3000.0, "prestige": 0.04},
 	{"id": "car", "kind": "ride", "rank": 3, "name": "Новая иномарка", "price": 8e6, "upkeep": 30000.0, "prestige": 0.08},

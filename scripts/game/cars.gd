@@ -17,11 +17,11 @@ const CLASSES := {
 	"car": {"models": ["Kia Rio", "Hyundai Solaris", "Toyota Camry", "VW Polo", "Skoda Octavia"], "years": [2016, 2024], "hp": [110, 200],
 		"pay": 0.3, "save": 10.0, "rest": 0.0, "km_year": 15000.0, "legal": true},
 	"sportcar": {"models": ["BMW M5", "Porsche 911", "Mercedes-AMG GT", "Audi R8"], "years": [2018, 2025], "hp": [450, 620],
-		"pay": 0.4, "save": 12.0, "rest": 1.0, "km_year": 8000.0, "legal": true},
+		"pay": 0.4, "save": 12.0, "rest": 2.0, "km_year": 8000.0, "legal": true},
 	"yacht": {"models": ["Sunseeker 60", "Princess 65", "Azimut 72"], "years": [2012, 2025], "hp": [1200, 2400],
-		"pay": 0.0, "save": 0.0, "rest": 4.0, "km_year": 0.0, "legal": true},
+		"pay": 0.0, "save": 0.0, "rest": 8.0, "km_year": 0.0, "legal": true},
 	"jet": {"models": ["Cessna Citation", "Embraer Phenom 300", "Gulfstream G280"], "years": [2010, 2025], "hp": [0, 0],
-		"pay": 0.1, "save": 10.0, "rest": 6.0, "km_year": 0.0, "legal": true},
+		"pay": 0.1, "save": 10.0, "rest": 12.0, "km_year": 0.0, "legal": true},
 }
 const YEAR := 2026
 
