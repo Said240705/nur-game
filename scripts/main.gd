@@ -443,11 +443,7 @@ func _build_work(page: Control) -> void:
 	box.add_child(_job)
 	_pay = UI.label("", 34, GREEN, 700)
 	box.add_child(_pay)
-	_energy = Control.new()
-	_energy.custom_minimum_size = Vector2(0, 64)
-	_energy.draw.connect(_draw_energy.bind(_energy))
-	box.add_child(_energy)
-	box.add_child(_mind_row())
+	box.add_child(_stats_row())
 	var frame := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0, 0, 0, 0)
@@ -545,26 +541,116 @@ func _tick_shift(delta: float) -> void:
 	_energy.queue_redraw()
 
 
+## Energy and the trouble of the start, side by side as two small cards.
+func _stats_row() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	_energy = Control.new()
+	_energy.custom_minimum_size = Vector2(0, 136)
+	_energy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_energy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_energy.draw.connect(_draw_energy.bind(_energy))
+	row.add_child(_energy)
+	var mind := Control.new()
+	mind.custom_minimum_size = Vector2(0, 136)
+	mind.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mind.mouse_filter = Control.MOUSE_FILTER_STOP
+	mind.draw.connect(_draw_mind.bind(mind))
+	mind.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and not e.pressed and not UI.dragging and not _modal and not s.self_healing():
+			Sfx.play("click")
+			_show_care())
+	row.add_child(mind)
+	_refreshers.append(mind.queue_redraw)
+	return row
+
+
 func _draw_energy(c: Control) -> void:
+	var col := Color("#ffd447") if s.can_work() or _shift_left > 0.0 else Color("#ff9f43")
+	var corner := "+%d в день" % int(s.rest())
+	if _shift_left > 0.0:
+		corner = "ещё %d сек" % ceili(_shift_left)
+	_draw_stat(c, "bolt", col, "Энергия", s.energy, corner, Color(1, 1, 1, 0.55), false)
+
+
+func _draw_mind(c: Control) -> void:
+	var o := Origin.info(s.origin)
+	var icon: String = {"street": "heart", "family": "home", "rich": "spark"}.get(s.origin, "heart")
+	var col: Color = {"heart": Color("#ff5c8a"), "home": Color("#5aa9ff"), "spark": Color("#b388ff")}[icon]
+	var corner := "дома +2"
+	var corner_col := Color(1, 1, 1, 0.55)
+	var pill := false
+	var can: bool = s.cash >= s.care_cost() and s.mind < 100.0
+	if not s.self_healing():
+		corner = "+ " + Data.money(s.care_cost())
+		corner_col = Color("#1a1040") if can else Color(1, 1, 1, 0.6)
+		pill = true
+	var title: String = o.get("meter_short", o["meter"])
+	if s.mind < Origin.LOW:
+		col = RED
+		title += " · отдых ×0,5"
+	_draw_stat(c, icon, col, title, s.mind, corner, corner_col, pill, can)
+
+
+## One stat card: an icon in a soft circle, the name, a big number and a bar.
+## `corner` is a small note bottom right, or a price pill to tap for care.
+func _draw_stat(c: Control, icon: String, col: Color, title: String, value: float, corner: String, corner_col: Color, pill: bool, can := true) -> void:
 	var w := c.size.x
+	var h := c.size.y
+	var card := StyleBoxFlat.new()
+	card.bg_color = CARD
+	card.set_corner_radius_all(30)
+	card.border_color = Color(col, 0.35)
+	card.set_border_width_all(2)
+	c.draw_style_box(card, Rect2(0, 0, w, h))
+	var ic := Vector2(58, 58)
+	c.draw_circle(ic, 38, Color(col, 0.16))
+	_draw_glyph(c, icon, ic, col)
 	var f := UI.font(700)
-	var k: float = s.energy / 100.0
-	var bar := Rect2(0, 36, w, 20)
+	c.draw_string(f, Vector2(110, 42), title, HORIZONTAL_ALIGNMENT_LEFT, w - 120, 24, col if col == RED else UI.SUB)
+	var big := UI.font(900)
+	var num := str(int(value))
+	c.draw_string(big, Vector2(110, 94), num, HORIZONTAL_ALIGNMENT_LEFT, -1, 50, Color.WHITE)
+	var nw := big.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, 50).x
+	c.draw_string(f, Vector2(116 + nw, 94), "/100", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(1, 1, 1, 0.4))
+	if corner != "":
+		var cw := f.get_string_size(corner, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+		var pos := Vector2(w - 22 - cw, 92)
+		if pill:
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = UI.GOLD if can else Color("#3a3f5c")
+			sb.set_corner_radius_all(22)
+			c.draw_style_box(sb, Rect2(pos + Vector2(-14, -32), Vector2(cw + 28, 44)))
+		c.draw_string(f, pos, corner, HORIZONTAL_ALIGNMENT_LEFT, -1, 24, corner_col)
+	var bar := Rect2(24, h - 24, w - 48, 10)
 	var back := StyleBoxFlat.new()
-	back.bg_color = Color(1, 1, 1, 0.08)
-	back.set_corner_radius_all(10)
+	back.bg_color = Color(1, 1, 1, 0.07)
+	back.set_corner_radius_all(5)
 	c.draw_style_box(back, bar)
-	var col := GREEN if s.can_work() or _shift_left > 0.0 else Color("#ffb347")
+	var k := clampf(value / 100.0, 0.0, 1.0)
 	if k > 0.0:
 		var fill := StyleBoxFlat.new()
 		fill.bg_color = col
-		fill.set_corner_radius_all(10)
-		c.draw_style_box(fill, Rect2(bar.position, Vector2(maxf(20.0, w * k), bar.size.y)))
-	var text := "Энергия %d / 100  ·  +%d в день от отдыха" % [int(s.energy), int(s.rest())]
-	if _shift_left > 0.0:
-		text = "Энергия %d / 100  ·  смена: ещё %d сек" % [int(s.energy), ceili(_shift_left)]
-	c.draw_string(f, Vector2(0, 26), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color(1, 1, 1, 0.8))
+		fill.set_corner_radius_all(5)
+		c.draw_style_box(fill, Rect2(bar.position, Vector2(maxf(10.0, bar.size.x * k), bar.size.y)))
 
+
+func _draw_glyph(c: Control, icon: String, at: Vector2, col: Color) -> void:
+	match icon:
+		"bolt":
+			c.draw_colored_polygon(PackedVector2Array([at + Vector2(6, -24), at + Vector2(-14, 4), at + Vector2(-1, 4),
+				at + Vector2(-6, 24), at + Vector2(14, -4), at + Vector2(1, -4)]), col)
+		"heart":
+			c.draw_circle(at + Vector2(-9, -6), 11, col)
+			c.draw_circle(at + Vector2(9, -6), 11, col)
+			c.draw_colored_polygon(PackedVector2Array([at + Vector2(-19.5, -2), at + Vector2(19.5, -2), at + Vector2(0, 20)]), col)
+		"home":
+			c.draw_colored_polygon(PackedVector2Array([at + Vector2(-22, -2), at + Vector2(0, -22), at + Vector2(22, -2)]), col)
+			c.draw_rect(Rect2(at + Vector2(-15, -3), Vector2(30, 23)), col)
+			c.draw_rect(Rect2(at + Vector2(-5, 6), Vector2(10, 14)), CARD)
+		"spark":
+			c.draw_colored_polygon(PackedVector2Array([at + Vector2(0, -24), at + Vector2(6, -6), at + Vector2(24, 0), at + Vector2(6, 6),
+				at + Vector2(0, 24), at + Vector2(-6, 6), at + Vector2(-24, 0), at + Vector2(-6, -6)]), col)
 
 func _on_earned(amount: float, at: Vector2, note: String) -> void:
 	s.cash += amount
@@ -1714,60 +1800,20 @@ func _float(text: String, at: Vector2, color: Color, size_px: int) -> void:
 
 # --- The start, its trouble and its story ---------------------------------------------
 
-## The trouble of the start on the work page: a meter and the care that helps.
-func _mind_row() -> Control:
+## What the trouble meter means and the care that helps, in a card.
+func _show_care() -> void:
 	var o := Origin.info(s.origin)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 20)
-	var bar := Control.new()
-	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.custom_minimum_size = Vector2(0, 76)
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(bar)
-	bar.draw.connect(_draw_mind.bind(bar))
-	var btn := UI.pill_button("", UI.GOLD, _care)
-	btn.custom_minimum_size = Vector2(340, 76)
-	btn.add_theme_font_size_override("font_size", 28)
-	row.add_child(btn)
-	var paint := func() -> void:
-		bar.queue_redraw()
-		btn.visible = not s.self_healing()
-		var cost: float = s.care_cost()
-		btn.text = "%s · %s" % [o["care_short"], Data.money(cost)]
-		var can: bool = s.cash >= cost and s.mind < 100.0
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = UI.GOLD if can else Color("#3a3f5c")
-		sb.set_corner_radius_all(38)
-		for st in ["normal", "hover", "pressed", "focus"]:
-			btn.add_theme_stylebox_override(st, sb)
-		for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-			btn.add_theme_color_override(k, Color("#1a1040") if can else Color(1, 1, 1, 0.55))
-	paint.call()
-	_refreshers.append(paint)
-	return row
-
-
-func _draw_mind(bar: Control) -> void:
-	var o := Origin.info(s.origin)
-	var w := bar.size.x
-	var k: float = clampf(s.mind / 100.0, 0.0, 1.0)
-	var col := GREEN if s.mind >= 60.0 else (UI.GOLD if s.mind >= Origin.LOW else RED)
-	var back := StyleBoxFlat.new()
-	back.bg_color = Color(1, 1, 1, 0.08)
-	back.set_corner_radius_all(10)
-	bar.draw_style_box(back, Rect2(0, 46, w, 20))
-	if k > 0.0:
-		var fill := StyleBoxFlat.new()
-		fill.bg_color = col
-		fill.set_corner_radius_all(10)
-		bar.draw_style_box(fill, Rect2(0, 46, maxf(20.0, w * k), 20))
-	var text := "%s %d / 100" % [o.get("meter_short", o["meter"]), int(s.mind)]
-	if s.self_healing():
-		text += "  ·  дома: +2 в день"
-	elif s.mind < Origin.LOW:
-		text += "  ·  отдых ×0,5"
-	bar.draw_string(UI.font(700), Vector2(0, 32), text, HORIZONTAL_ALIGNMENT_LEFT, w, 30, col if s.mind < Origin.LOW else Color(1, 1, 1, 0.8))
-
+	var cost: float = s.care_cost()
+	var box := _open_modal()
+	_modal_text(box, o["meter"].to_upper() + "  ·  %d / 100" % int(s.mind), 30, UI.GOLD, 800)
+	_modal_text(box, o["care"], 62, Color.WHITE, 900)
+	_modal_text(box, o["care_text"], 38, Color("#d8dbe8"), 500)
+	_modal_text(box, "+%d. Ниже %d отдых вдвое хуже, на нуле — «%s»." % [int(o["care_gain"]), int(Origin.LOW), o["crisis"]], 32, UI.SUB, 600)
+	box.add_child(UI.spacer(10))
+	_modal_button(box, "Оплатить · %s" % Data.money(cost), UI.GOLD if s.cash >= cost and s.mind < 100.0 else Color("#8f96b8"), func() -> void:
+		_close_modal()
+		_care())
+	box.add_child(UI.flat_button("Позже", 38, UI.SUB, _close_modal))
 
 func _care() -> void:
 	var o := Origin.info(s.origin)

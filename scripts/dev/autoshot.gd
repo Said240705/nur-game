@@ -25,6 +25,7 @@ func _ready() -> void:
 	var s: RefCounted = _main.s
 	_main._event_t = 9999.0
 	_main._deal_t = 9999.0
+	_main._story_t = 9999.0
 	_main._rank_seen = 99
 	match _mode:
 		"city":
@@ -168,6 +169,10 @@ func _ready() -> void:
 			_main._rebuild_pages()
 			await _wait(1.0)
 			await _shot("origin_work")
+			_main._show_care()
+			await _wait(1.0)
+			await _shot("origin_care")
+			_main._close_modal()
 			_main._story_t = 0.0
 			await _wait(1.2)
 			await _shot("origin_beat")
