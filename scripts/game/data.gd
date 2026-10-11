@@ -140,19 +140,19 @@ const ADS := [
 
 
 ## Homes and rides: they cost upkeep every day, but status (prestige) makes
-## every business earn more.
+## every business earn more. `rank` is the status from which one can buy it.
 const PROPERTY := [
-	{"id": "room", "kind": "home", "name": "Комната в общаге", "price": 30000.0, "upkeep": 500.0, "prestige": 0.03, "rest": 2.0},
-	{"id": "flat", "kind": "home", "name": "Своя квартира", "price": 1.2e6, "upkeep": 6000.0, "prestige": 0.06, "rest": 3.0},
-	{"id": "house", "kind": "home", "name": "Дом за городом", "price": 3e7, "upkeep": 90000.0, "prestige": 0.1, "rest": 4.0},
-	{"id": "penthouse", "kind": "home", "name": "Пентхаус", "price": 8e8, "upkeep": 2e6, "prestige": 0.18, "rest": 5.0},
-	{"id": "mansion", "kind": "home", "name": "Особняк у моря", "price": 1.5e10, "upkeep": 3e7, "prestige": 0.3, "rest": 7.0},
-	{"id": "bike", "kind": "ride", "name": "Велосипед", "price": 15000.0, "upkeep": 0.0, "prestige": 0.02},
-	{"id": "oldcar", "kind": "ride", "name": "Подержанная машина", "price": 5e5, "upkeep": 3000.0, "prestige": 0.04},
-	{"id": "car", "kind": "ride", "name": "Новая иномарка", "price": 8e6, "upkeep": 30000.0, "prestige": 0.08},
-	{"id": "sportcar", "kind": "ride", "name": "Спорткар", "price": 2e8, "upkeep": 6e5, "prestige": 0.15},
-	{"id": "yacht", "kind": "ride", "name": "Яхта", "price": 4e9, "upkeep": 1e7, "prestige": 0.25},
-	{"id": "jet", "kind": "ride", "name": "Частный самолёт", "price": 6e10, "upkeep": 1.5e8, "prestige": 0.4},
+	{"id": "room", "kind": "home", "rank": 0, "name": "Комната в общаге", "price": 30000.0, "upkeep": 500.0, "prestige": 0.03, "rest": 2.0},
+	{"id": "flat", "kind": "home", "rank": 1, "name": "Своя квартира", "price": 1.2e6, "upkeep": 6000.0, "prestige": 0.06, "rest": 3.0},
+	{"id": "house", "kind": "home", "rank": 3, "name": "Дом за городом", "price": 3e7, "upkeep": 90000.0, "prestige": 0.1, "rest": 4.0},
+	{"id": "penthouse", "kind": "home", "rank": 5, "name": "Пентхаус", "price": 8e8, "upkeep": 2e6, "prestige": 0.18, "rest": 5.0},
+	{"id": "mansion", "kind": "home", "rank": 7, "name": "Особняк у моря", "price": 1.5e10, "upkeep": 3e7, "prestige": 0.3, "rest": 7.0},
+	{"id": "bike", "kind": "ride", "rank": 0, "name": "Велосипед", "price": 15000.0, "upkeep": 0.0, "prestige": 0.02},
+	{"id": "oldcar", "kind": "ride", "rank": 1, "name": "Подержанная машина", "price": 5e5, "upkeep": 3000.0, "prestige": 0.04},
+	{"id": "car", "kind": "ride", "rank": 3, "name": "Новая иномарка", "price": 8e6, "upkeep": 30000.0, "prestige": 0.08},
+	{"id": "sportcar", "kind": "ride", "rank": 5, "name": "Спорткар", "price": 2e8, "upkeep": 6e5, "prestige": 0.15},
+	{"id": "yacht", "kind": "ride", "rank": 6, "name": "Яхта", "price": 4e9, "upkeep": 1e7, "prestige": 0.25},
+	{"id": "jet", "kind": "ride", "rank": 7, "name": "Частный самолёт", "price": 6e10, "upkeep": 1.5e8, "prestige": 0.4},
 ]
 
 

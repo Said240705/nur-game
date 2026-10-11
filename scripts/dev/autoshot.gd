@@ -1,6 +1,6 @@
 extends Node
 ## Developer tool: plays a little by itself and saves screenshots.
-##   godot --path . -- --shots=DIR --mode=city|work|cars|away|contract
+##   godot --path . -- --shots=DIR --mode=city|work|cars|away|props|contract
 ## Starts from a fresh life and never touches the real save.
 
 const Contract := preload("res://scripts/game/contract.gd")
@@ -136,6 +136,21 @@ func _ready() -> void:
 			_main._welcome_back(26.0 * 3600.0)
 			await _wait(1.0)
 			await _shot("away")
+		"props":
+			s.cash = 120000.0
+			_main._rank_seen = 1
+			_main._rebuild_pages()
+			_main._show_tab("prop")
+			await _wait(1.0)
+			await _shot("props_top")
+			var scroll: ScrollContainer = _main._pages["prop"].get_child(0)
+			scroll.scroll_vertical = 1300
+			await _wait(0.6)
+			await _shot("props_rides")
+			_main._show_tab("work")
+			_main._deal_t = 0.0
+			await _wait(1.2)
+			await _shot("deal")
 		"contract":
 			s.cash = 5000.0
 			var c := Contract.make("wash", 3000.0, true, 5)

@@ -34,7 +34,7 @@ const HEADER_H := 380.0
 const TABS_H := 190.0
 ## Seconds between life events and between hot deals (random within the range).
 const EVENT_GAP := Vector2(22, 40)
-const DEAL_GAP := Vector2(45, 80)
+const DEAL_GAP := Vector2(120, 200)
 const DEAL_TIME := 15.0
 ## Time away: at most two hours count, up to 60 game days.
 const AWAY_CAP := 7200.0
@@ -72,7 +72,7 @@ var _shift_done := false
 
 var _day_t := 0.0
 var _event_t := 25.0
-var _deal_t := 40.0
+var _deal_t := 90.0
 var _save_t := 0.0
 var _refresh_t := 0.0
 var _shown := 0.0
@@ -143,7 +143,9 @@ func _process(delta: float) -> void:
 		_check_rank()
 		if s.pending_break != "" and not _modal:
 			_show_breakdown()
-	_event_t -= delta
+	# Nothing pops up during a shift: events and deals wait until it ends.
+	if not s.on_shift:
+		_event_t -= delta
 	if _event_t <= 0.0:
 		_show_event()
 	_tick_deal(delta)
@@ -638,6 +640,8 @@ func _garage_card(p: Dictionary) -> Control:
 	h.add_theme_constant_override("separation", 26)
 	card.add_child(h)
 	h.add_child(_icon(cls, Color("#c8921d") if not car.is_empty() else Color("#3a3f5c")))
+	if s.rank() < p["rank"]:
+		card.modulate = Color(1, 1, 1, 0.6)
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(v)
@@ -658,11 +662,55 @@ func _garage_card(p: Dictionary) -> Control:
 	perks.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	perks.custom_minimum_size.x = 400
 	v.add_child(perks)
-	var btn := UI.pill_button("Сменить" if not car.is_empty() else "от " + Data.money(p["price"] * 0.65), UI.GOLD, func() -> void: _show_market(cls))
-	btn.custom_minimum_size = Vector2(210, 100)
-	btn.add_theme_font_size_override("font_size", 32)
-	h.add_child(btn)
+	if not car.is_empty():
+		h.add_child(_buy_column("", 0.0, p, "Сменить", func() -> void: _show_market(cls)))
+	else:
+		h.add_child(_buy_column("от", p["price"] * 0.65, p, "Смотреть", func() -> void: _show_market(cls)))
 	return _row(card)
+
+
+## The right side of a property card: the price and a small button — grey when
+## the money is not there yet, a lock when the status is not reached.
+func _buy_column(prefix: String, price: float, p: Dictionary, label: String, on_press: Callable) -> Control:
+	var col := VBoxContainer.new()
+	col.custom_minimum_size.x = 210
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 10)
+	if s.rank() < p["rank"]:
+		var lock := Control.new()
+		lock.custom_minimum_size = Vector2(210, 56)
+		lock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		lock.draw.connect(func() -> void:
+			var c := Vector2(105, 30)
+			lock.draw_arc(c + Vector2(0, -6), 13, PI, TAU, 14, UI.SUB, 6, true)
+			lock.draw_rect(Rect2(c + Vector2(-19, -6), Vector2(38, 30)), UI.SUB))
+		col.add_child(lock)
+		col.add_child(UI.label("Откроется:\n«%s»" % Data.RANKS[p["rank"]]["name"], 26, UI.SUB, 700))
+		return col
+	var pr: Label = null
+	if price > 0.0:
+		pr = UI.label(("%s " % prefix if prefix != "" else "") + Data.money(price), 30, UI.GOLD, 800)
+		pr.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		col.add_child(pr)
+	var btn := UI.pill_button(label, UI.GOLD, on_press)
+	btn.custom_minimum_size = Vector2(190, 82)
+	btn.add_theme_font_size_override("font_size", 30)
+	col.add_child(btn)
+	# Grey while the money is not there; it turns gold as soon as it is.
+	var paint := func() -> void:
+		var can: bool = price <= 0.0 or s.cash >= price
+		if pr:
+			pr.add_theme_color_override("font_color", UI.GOLD if can else UI.SUB)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = UI.GOLD if can else Color("#3a3f5c")
+		sb.set_corner_radius_all(41)
+		for st in ["normal", "hover", "pressed", "focus"]:
+			btn.add_theme_stylebox_override(st, sb)
+		for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			btn.add_theme_color_override(k, Color("#1a1040") if can else Color(1, 1, 1, 0.55))
+	paint.call()
+	_refreshers.append(paint)
+	return col
 
 
 # --- Vehicle market ----------------------------------------------------------------
@@ -1023,6 +1071,8 @@ func _property_card(p: Dictionary) -> Control:
 	h.add_theme_constant_override("separation", 26)
 	card.add_child(h)
 	h.add_child(_icon(id, Color("#3a3f5c") if not has else Color("#c8921d")))
+	if s.rank() < p["rank"]:
+		card.modulate = Color(1, 1, 1, 0.6)
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(v)
@@ -1042,14 +1092,10 @@ func _property_card(p: Dictionary) -> Control:
 	v.add_child(cost)
 	if has:
 		var mine := UI.label("Твоё", 40, UI.GOLD, 900)
-		mine.custom_minimum_size = Vector2(250, 0)
+		mine.custom_minimum_size = Vector2(210, 0)
 		h.add_child(mine)
 	else:
-		var btn := UI.pill_button("Смотреть\n" + Data.money(p["price"]), UI.GOLD, func() -> void: _show_home(p, p["price"]))
-		btn.custom_minimum_size = Vector2(250, 110)
-		btn.add_theme_font_size_override("font_size", 34)
-		h.add_child(btn)
-		_refreshers.append(func() -> void: btn.modulate.a = 1.0 if s.cash >= p["price"] else 0.4)
+		h.add_child(_buy_column("", p["price"], p, "Смотреть", func() -> void: _show_home(p, p["price"])))
 	return _row(card)
 
 
@@ -1067,8 +1113,12 @@ func _build_deal() -> void:
 	_deal_box = Control.new()
 	_deal_box.visible = false
 	root.add_child(_deal_box)
-	_deal_box.position = Vector2(40, HEADER_H + 20)
-	_deal_box.size = Vector2(1000, 170)
+	# Above the tab bar, where it covers the least of what you are doing.
+	_deal_box.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_deal_box.offset_left = 40
+	_deal_box.offset_right = -40
+	_deal_box.offset_top = -TABS_H - 196
+	_deal_box.offset_bottom = -TABS_H - 26
 	_deal_box.draw.connect(_draw_deal)
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
@@ -1080,6 +1130,9 @@ func _build_deal() -> void:
 
 
 func _tick_deal(delta: float) -> void:
+	_deal_box.visible = not _deal.is_empty() and not s.on_shift
+	if s.on_shift:
+		return
 	if not _deal.is_empty():
 		_deal["left"] -= delta
 		_deal_box.queue_redraw()
@@ -1101,7 +1154,7 @@ func _tick_deal(delta: float) -> void:
 			var p: Dictionary = free[randi() % free.size()]
 			offers.append({"kind": "biz", "item": b, "plot": p["id"]})
 	for p in Data.PROPERTY:
-		if not s.owned.has(p["id"]) and p["price"] <= budget:
+		if not s.owned.has(p["id"]) and p["price"] <= budget and s.rank() >= p["rank"]:
 			offers.append({"kind": "prop", "item": p})
 	if offers.is_empty():
 		return
@@ -1119,25 +1172,46 @@ func _draw_deal() -> void:
 	if _deal.is_empty():
 		return
 	var r := Rect2(Vector2.ZERO, _deal_box.size)
+	var glow := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 260.0)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color("#2a1630")
-	sb.set_corner_radius_all(36)
-	sb.border_color = Color("#ff5fa2")
+	sb.bg_color = Color("#1d1426")
+	sb.set_corner_radius_all(40)
+	sb.border_color = Color("#ff5fa2").lerp(UI.GOLD, glow * 0.6)
 	sb.set_border_width_all(3)
-	sb.shadow_color = Color(1, 0.37, 0.64, 0.4 + 0.2 * sin(Time.get_ticks_msec() / 150.0))
-	sb.shadow_size = 24
+	sb.shadow_color = Color(1, 0.37, 0.64, 0.25 + 0.2 * glow)
+	sb.shadow_size = 26
 	_deal_box.draw_style_box(sb, r)
 	var item: Dictionary = _deal["item"]
-	Icons.tile(_deal_box, item["id"], Rect2(22, 22, 126, 126), item.get("color", Color("#c8921d")))
+	Icons.tile(_deal_box, item["id"], Rect2(24, 24, 122, 122), item.get("color", Color("#c8921d")))
 	var f := UI.font(800)
-	_deal_box.draw_string(f, Vector2(176, 62), "ГОРЯЩАЯ СДЕЛКА  −%d%%" % roundi(_deal["off"] * 100.0), HORIZONTAL_ALIGNMENT_LEFT, -1, 32, Color("#ff5fa2"))
+	# The discount on a pink chip.
+	var chip := "−%d%%" % roundi(_deal["off"] * 100.0)
+	var cw := f.get_string_size(chip, HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x + 30
+	var csb := StyleBoxFlat.new()
+	csb.bg_color = Color("#ff5fa2")
+	csb.set_corner_radius_all(18)
+	_deal_box.draw_style_box(csb, Rect2(170, 22, cw, 40))
+	_deal_box.draw_string(f, Vector2(185, 52), chip, HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Color.WHITE)
+	_deal_box.draw_string(f, Vector2(170 + cw + 14, 52), "ГОРЯЩАЯ СДЕЛКА", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Color("#ff9cc6"))
 	var what: String = item["name"]
 	if _deal["kind"] == "biz":
-		what = "Готовый бизнес: %s, %s" % [item["name"], Data.DISTRICTS[Data.plot(_deal["plot"])["d"]]["name"]]
-	_deal_box.draw_string(f, Vector2(176, 104), what, HORIZONTAL_ALIGNMENT_LEFT, 800, 32, Color.WHITE)
-	_deal_box.draw_string(f, Vector2(176, 132), "за " + Data.money(_deal["price"]), HORIZONTAL_ALIGNMENT_LEFT, 800, 28, UI.GOLD)
+		what = "%s · %s" % [item["name"], Data.DISTRICTS[Data.plot(_deal["plot"])["d"]]["name"]]
+	_deal_box.draw_string(f, Vector2(170, 104), what, HORIZONTAL_ALIGNMENT_LEFT, 640, 34, Color.WHITE)
+	# Old price struck through, new price in gold.
+	var base: float = item["price"] * (1.3 if _deal["kind"] == "biz" else 1.0)
+	var old := Data.money(base)
+	var ow := f.get_string_size(old, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
+	_deal_box.draw_string(f, Vector2(170, 146), old, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, UI.SUB)
+	_deal_box.draw_line(Vector2(168, 137), Vector2(172 + ow, 137), UI.SUB, 3)
+	_deal_box.draw_string(f, Vector2(186 + ow, 148), Data.money(_deal["price"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 34, UI.GOLD)
+	# The time left as a ring.
+	var c := Vector2(r.size.x - 70, r.size.y * 0.5)
 	var k: float = _deal["left"] / DEAL_TIME
-	_deal_box.draw_rect(Rect2(176, 146, 780 * k, 10), Color("#ff5fa2"))
+	_deal_box.draw_arc(c, 40, 0, TAU, 40, Color(1, 1, 1, 0.1), 8, true)
+	_deal_box.draw_arc(c, 40, -PI * 0.5, -PI * 0.5 + TAU * k, 40, Color("#ff5fa2"), 8, true)
+	var sec := str(ceili(_deal["left"]))
+	var sw := f.get_string_size(sec, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x
+	_deal_box.draw_string(f, c + Vector2(-sw * 0.5, 12), sec, HORIZONTAL_ALIGNMENT_LEFT, -1, 32, Color.WHITE)
 
 
 func _take_deal() -> void:
