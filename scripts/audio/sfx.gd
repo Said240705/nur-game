@@ -1,9 +1,14 @@
 extends Node
-## Every sound is synthesized here at start-up (no sound files), plus the calm
-## background loop made by tools/music/make_music.py.
+## Every sound is synthesized here at start-up (no sound files), plus the
+## background songs made by tools/music/make_tracks.py, played one after another.
 
 const RATE := 22050
-const MUSIC := preload("res://assets/audio/music/ambient.ogg")
+const SONGS := [
+	preload("res://assets/audio/music/track_city.ogg"),
+	preload("res://assets/audio/music/track_morning.ogg"),
+	preload("res://assets/audio/music/track_evening.ogg"),
+	preload("res://assets/audio/music/track_dream.ogg"),
+]
 const MUSIC_DB := -13.0
 
 var sound_on := true
@@ -12,6 +17,9 @@ var music_on := true
 var _streams := {}
 var _players: Array[AudioStreamPlayer] = []
 var _music: AudioStreamPlayer
+var _song := 0
+## Seconds left of the song playing; the next one starts when it runs out.
+var _song_left := 0.0
 
 
 func _ready() -> void:
@@ -31,10 +39,9 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
-	var loop: AudioStreamOggVorbis = MUSIC
-	loop.loop = true
+	_song = randi() % SONGS.size()
 	_music = AudioStreamPlayer.new()
-	_music.stream = loop
+	_music.stream = SONGS[_song]
 	_music.volume_db = -80.0
 	add_child(_music)
 	# In the browser, hand every sound to Web Audio up front: played as a
@@ -42,7 +49,8 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		for st in _streams.values():
 			AudioServer.register_stream_as_sample(st)
-		AudioServer.register_stream_as_sample(loop)
+		for song in SONGS:
+			AudioServer.register_stream_as_sample(song)
 
 
 func play(sound: String, volume_db := 0.0, pitch := 1.0) -> void:
@@ -64,10 +72,31 @@ func set_music(on: bool) -> void:
 	if on:
 		if not _music.playing:
 			_music.play()
+			_song_left = _music.stream.get_length()
 		tw.tween_property(_music, "volume_db", MUSIC_DB, 2.5).set_trans(Tween.TRANS_SINE)
 	else:
 		tw.tween_property(_music, "volume_db", -80.0, 0.8)
 		tw.tween_callback(_music.stop)
+
+
+## Browsers allow sound only after the first touch: the music starts then.
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton or event is InputEventScreenTouch:
+		set_process_input(false)
+		if music_on and not _music.playing:
+			set_music(true)
+
+
+## Songs have their own fade in and out, so the next simply follows.
+func _process(delta: float) -> void:
+	if not music_on or not _music.playing:
+		return
+	_song_left -= delta
+	if _song_left <= 0.0:
+		_song = (_song + 1) % SONGS.size()
+		_music.stream = SONGS[_song]
+		_music.play()
+		_song_left = _music.stream.get_length()
 
 
 func _wav(samples: PackedFloat32Array) -> AudioStreamWAV:
