@@ -1,6 +1,6 @@
 extends Node
 ## Developer tool: plays a little by itself and saves screenshots.
-##   godot --path . -- --shots=DIR --mode=city|work|cars|contract
+##   godot --path . -- --shots=DIR --mode=city|work|cars|away|contract
 ## Starts from a fresh life and never touches the real save.
 
 const Contract := preload("res://scripts/game/contract.gd")
@@ -113,6 +113,29 @@ func _ready() -> void:
 			_main._show_breakdown()
 			await _wait(0.9)
 			await _shot("breakdown")
+		"away":
+			s.cash = 5e6
+			var a: Dictionary = s.open_venue("shawarma", 8, 30000.0)
+			s.hire(a, "cook", 3)
+			s.hire(a, "clean", 1)
+			s.hire(a, "manager", 1)
+			s.buy_stock(a, 7)
+			var b: Dictionary = s.open_venue("coffee", 13, 1.8e6)
+			s.hire(b, "barista", 2)
+			s.buy_stock(b, 3)
+			var c: Dictionary = s.open_venue("wash", 5, 3e5)
+			s.hire(c, "washer", 2)
+			s.buy_stock(c, 2)
+			s.energy = 20.0
+			for i in 2:
+				s.next_day()
+			_main._rebuild_pages()
+			_main._show_tab("biz")
+			await _wait(0.8)
+			await _shot("biz_totals")
+			_main._welcome_back(26.0 * 3600.0)
+			await _wait(1.0)
+			await _shot("away")
 		"contract":
 			s.cash = 5000.0
 			var c := Contract.make("wash", 3000.0, true, 5)

@@ -66,7 +66,7 @@ func _draw() -> void:
 			"fare":
 				person(c + Vector2(0, 60), Color("#ff5fa2"), false, 0.0)
 				draw_line(c + Vector2(20, -60), c + Vector2(44, -110), Color("#f2c19b"), 10)
-				text("$", c + Vector2(0, -150), 44, GREEN, 900)
+				text("₽", c + Vector2(0, -150), 44, GREEN, 900)
 			"cone":
 				draw_colored_polygon(PackedVector2Array([c + Vector2(-34, 40), c + Vector2(0, -50), c + Vector2(34, 40)]), Color("#ff7a1a"))
 				draw_rect(Rect2(c + Vector2(-18, -6), Vector2(36, 14)), Color.WHITE)

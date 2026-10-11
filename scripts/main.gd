@@ -36,7 +36,7 @@ const TABS_H := 190.0
 const EVENT_GAP := Vector2(22, 40)
 const DEAL_GAP := Vector2(45, 80)
 const DEAL_TIME := 15.0
-## Time away: at most two hours count, up to 300 game days.
+## Time away: at most two hours count, up to 60 game days.
 const AWAY_CAP := 7200.0
 
 var s: RefCounted
@@ -83,7 +83,7 @@ var _last_unix := 0.0
 
 func _ready() -> void:
 	var dev := OS.get_cmdline_user_args()
-	var saved: Dictionary = {} if dev.size() > 0 else Save.get_value("life2", {})
+	var saved: Dictionary = {} if dev.size() > 0 else Save.get_value("life3", {})
 	s = State.from_dict(saved) if not saved.is_empty() else State.new()
 	_shown = s.cash
 	_rank_seen = s.rank()
@@ -161,7 +161,7 @@ func _notification(what: int) -> void:
 func _save() -> void:
 	_save_t = 0.0
 	if s and OS.get_cmdline_user_args().is_empty():
-		Save.set_value("life2", s.to_dict())
+		Save.set_value("life3", s.to_dict())
 		Save.set_value("record", maxf(Save.get_value("record", 0.0), s.best_worth))
 
 
@@ -481,12 +481,16 @@ func _start_shift() -> void:
 
 
 func _tick_shift(delta: float) -> void:
-	if _shift_left <= 0.0 or not _game or not is_instance_valid(_game) or not _game.active():
+	# The shift clock runs on other tabs too; only a card on screen stops it.
+	if _shift_left <= 0.0 or not _game or not is_instance_valid(_game) or UI.modal_open:
 		return
+	var step := minf(delta, _shift_left)
 	_shift_left -= delta
+	s.tire(step)
 	if _shift_left <= 0.0:
 		_shift_left = 0.0
 		_shift_done = true
+		s.end_shift()
 		_game.working = false
 		_cover.visible = true
 		Sfx.play("fanfare", -6.0)
@@ -503,17 +507,15 @@ func _draw_energy() -> void:
 	back.bg_color = Color(1, 1, 1, 0.08)
 	back.set_corner_radius_all(10)
 	_energy.draw_style_box(back, bar)
-	var col := GREEN if s.can_work() else Color("#ffb347")
-	if _shift_left > 0.0:
-		# During a shift the bar shows the time left instead.
-		k = _shift_left / Data.SHIFT_TIME
-		col = UI.GOLD
+	var col := GREEN if s.can_work() or _shift_left > 0.0 else Color("#ffb347")
 	if k > 0.0:
 		var fill := StyleBoxFlat.new()
 		fill.bg_color = col
 		fill.set_corner_radius_all(10)
 		_energy.draw_style_box(fill, Rect2(bar.position, Vector2(maxf(20.0, w * k), bar.size.y)))
-	var text := "Смена: ещё %d сек" % ceili(_shift_left) if _shift_left > 0.0 else "Энергия %d / 100  ·  +%d в день от отдыха" % [int(s.energy), int(s.rest())]
+	var text := "Энергия %d / 100  ·  +%d в день от отдыха" % [int(s.energy), int(s.rest())]
+	if _shift_left > 0.0:
+		text = "Энергия %d / 100  ·  смена: ещё %d сек" % [int(s.energy), ceili(_shift_left)]
 	_energy.draw_string(f, Vector2(0, 26), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color(1, 1, 1, 0.8))
 
 
@@ -565,11 +567,11 @@ func _advice() -> String:
 	if s.cash < 0.0:
 		return "Ты в долгах! Работай, сократи расходы или продай что-нибудь — иначе через несколько дней банкротство."
 	if s.venues.is_empty():
-		if not s.can_work() and s.cash < Data.BUSINESSES[0]["price"] + 80.0:
+		if not s.can_work() and s.cash < Data.BUSINESSES[0]["price"] + 8000.0:
 			return "Устал — отдохни. Жильё получше восстанавливает силы быстрее (вкладка «Имущество»)."
-		if s.cash >= Data.BUSINESSES[0]["price"] + 80.0:
+		if s.cash >= Data.BUSINESSES[0]["price"] + 8000.0:
 			return "Хватает на первый бизнес! Открой вкладку «Город», выбери свободное место «S» и открой ларёк с шаурмой."
-		return "Выходи на смены и копи %s на первый бизнес (с запасом на продукты и зарплату)." % Data.money(Data.BUSINESSES[0]["price"] + 80.0)
+		return "Выходи на смены и копи %s на первый бизнес (с запасом на продукты и зарплату)." % Data.money(Data.BUSINESSES[0]["price"] + 8000.0)
 	for v in s.venues:
 		var why := Venue.blocker(v)
 		if why != "" and not why.begins_with("Ремонт"):
@@ -890,9 +892,45 @@ func _build_venues(page: Control) -> void:
 		card.add_child(l)
 		box.add_child(_row(card))
 		return
+	box.add_child(_totals_card())
 	for v in s.venues:
 		box.add_child(_venue_card(v))
 	box.add_child(UI.spacer(40))
+
+
+## Yesterday across all businesses: revenue, every kind of cost, profit.
+func _totals_card() -> Control:
+	var t := {"revenue": 0.0, "goods": 0.0, "salaries": 0.0, "rent": 0.0, "power": 0.0, "water": 0.0, "ads": 0.0, "profit": 0.0, "served": 0.0}
+	for v in s.venues:
+		var r: Dictionary = v["report"]
+		for k in t:
+			t[k] += r.get(k, 0.0)
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.3)))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 4)
+	card.add_child(col)
+	var head := UI.label("Вчера по всем бизнесам", 38, UI.GOLD, 800)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	col.add_child(head)
+	_stat(col, "Клиентов", str(int(t["served"])))
+	_stat(col, "Выручка", "+" + Data.money(t["revenue"]))
+	_stat(col, "Товар", "−" + Data.money(t["goods"]))
+	_stat(col, "Зарплаты", "−" + Data.money(t["salaries"]))
+	_stat(col, "Аренда", "−" + Data.money(t["rent"]))
+	_stat(col, "Свет и вода", "−" + Data.money(t["power"] + t["water"]))
+	if t["ads"] > 0.0:
+		_stat(col, "Реклама", "−" + Data.money(t["ads"]))
+	var p: float = t["profit"]
+	var line := HBoxContainer.new()
+	var a := UI.label("Прибыль", 40, Color.WHITE, 900)
+	a.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var b := UI.label(("+" if p >= 0.0 else "") + Data.money(p), 40, GREEN if p >= 0.0 else RED, 900)
+	line.add_child(a)
+	line.add_child(b)
+	col.add_child(line)
+	return _row(card)
 
 
 func _venue_card(v: Dictionary) -> Control:
@@ -1054,7 +1092,7 @@ func _tick_deal(delta: float) -> void:
 		return
 	_deal_t = randf_range(DEAL_GAP.x, DEAL_GAP.y)
 	var offers := []
-	var budget := maxf(600.0, s.cash * 2.5)
+	var budget := maxf(60000.0, s.cash * 2.5)
 	for b in Data.BUSINESSES:
 		if b["price"] * 1.3 > budget:
 			continue
@@ -1295,6 +1333,7 @@ func _show_bankrupt() -> void:
 	_modal_button(box, "Начать заново", UI.GOLD, func() -> void:
 		s = State.new()
 		_shift_left = 0.0
+		_shift_earned = 0.0
 		_shift_done = false
 		_shown = s.cash
 		_rank_seen = 0
@@ -1305,32 +1344,129 @@ func _show_bankrupt() -> void:
 		_close_modal())
 
 
-## The days that passed while the game was closed are played out for real:
-## businesses without a manager may run out of stock.
+## The days that passed while the game was closed are played out for real,
+## then reported business by business: who earned, who lost and why.
 func _welcome_back(seconds: float) -> void:
 	if _modal:
 		return
-	var days := mini(int(minf(seconds, AWAY_CAP) / Data.DAY), 300)
-	if days < 3 or s.venues.is_empty():
+	var days := mini(int(minf(seconds, AWAY_CAP) / Data.DAY), 60)
+	if days < 3:
 		return
+	var stats := {}
+	for v in s.venues:
+		stats[v["id"]] = {"v": v, "profit": 0.0, "revenue": 0.0, "served": 0.0, "lost": 0.0, "idle": 0, "why": ""}
 	var before: float = s.cash
+	var energy_before: float = s.energy
+	var upkeep := 0.0
+	var passed := 0
 	for i in days:
+		upkeep += s.upkeep()
 		s.next_day()
-		if s.bankrupt:
-			break
+		passed += 1
+		for v in s.venues:
+			if not stats.has(v["id"]):
+				continue
+			var st: Dictionary = stats[v["id"]]
+			var r: Dictionary = v["report"]
+			st["profit"] += r["profit"]
+			st["revenue"] += r["revenue"]
+			st["served"] += r["served"]
+			st["lost"] += r["lost"]
+			if r["why"] != "":
+				st["idle"] += 1
+				st["why"] = r["why"]
+		# No bankruptcy while away: debts wait for the player to come back.
+		s.debt_days = 0
 	var earned: float = s.cash - before
 	_shown = s.cash
+	if stats.is_empty():
+		return
 	var box := _open_modal()
-	_modal_text(box, "С возвращением!", 60, Color.WHITE, 900)
-	_modal_text(box, "Пока тебя не было, прошло %d дн. Бизнес заработал" % days, 42, Color("#d8dbe8"), 500)
-	var l := _modal_text(box, ("+" if earned >= 0.0 else "") + Data.money(earned), 110, GREEN if earned >= 0.0 else RED, 900)
-	UI.glow(l, Color(GREEN if earned >= 0.0 else RED, 0.5), 20)
-	box.add_child(UI.spacer(20))
-	_modal_button(box, "Забрать", UI.GOLD, func() -> void:
+	_modal_text(box, "С возвращением!", 58, Color.WHITE, 900)
+	var hours := seconds / 3600.0
+	var away := "%d ч" % int(hours) if hours >= 1.0 else "%d мин" % int(seconds / 60.0)
+	_modal_text(box, "Тебя не было %s — в игре прошло %d дн." % [away, passed], 34, UI.SUB, 600)
+	var total := _modal_text(box, ("+" if earned >= 0.0 else "") + Data.money(earned), 96, GREEN if earned >= 0.0 else RED, 900)
+	UI.glow(total, Color(GREEN if earned >= 0.0 else RED, 0.45), 18)
+	if not stats.is_empty():
+		var scroll: ScrollContainer = TouchScroll.new()
+		scroll.custom_minimum_size = Vector2(870, minf(130.0 * stats.size() + 20.0, root.size.y * 0.34))
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+		box.add_child(scroll)
+		var list := VBoxContainer.new()
+		list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		list.add_theme_constant_override("separation", 14)
+		scroll.add_child(list)
+		var rows := stats.values()
+		rows.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a["profit"] > b["profit"])
+		for st in rows:
+			list.add_child(_away_row(st, passed))
+	var summary := VBoxContainer.new()
+	summary.add_theme_constant_override("separation", 4)
+	box.add_child(summary)
+	if upkeep > 0.0:
+		_stat(summary, "Жильё и транспорт", "−" + Data.money(upkeep))
+	_stat(summary, "Энергия", "%d → %d" % [int(energy_before), int(s.energy)])
+	box.add_child(UI.spacer(10))
+	if s.cash < 0.0:
+		_modal_text(box, "Ты в долгах! Есть %d дн., чтобы выйти в плюс." % (Data.DEBT_DAYS - s.debt_days), 32, RED, 800)
+	_modal_button(box, "Понятно", UI.GOLD, func() -> void:
 		Sfx.play("coin")
-		_close_modal()
-		if s.bankrupt:
-			_show_bankrupt())
+		_close_modal())
+
+
+## One business in the away report: what it earned and what went wrong.
+func _away_row(st: Dictionary, days: int) -> Control:
+	var v: Dictionary = st["v"]
+	var b := Venue.kind(v)
+	var card := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1, 1, 1, 0.04)
+	sb.set_corner_radius_all(26)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 24
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	card.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 18)
+	card.add_child(h)
+	var icon := Control.new()
+	icon.custom_minimum_size = Vector2(90, 90)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.draw.connect(func() -> void: Icons.tile(icon, b["id"], Rect2(Vector2.ZERO, icon.size), b["color"]))
+	h.add_child(icon)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 2)
+	h.add_child(col)
+	var name := UI.label("%s · %s" % [b["name"], Venue.district(v)["name"]], 27, Color.WHITE, 800)
+	name.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name.clip_text = true
+	name.custom_minimum_size.x = 440
+	col.add_child(name)
+	var line := "обслужено %d %s" % [int(st["served"]), b["client"]]
+	if st["lost"] >= 1.0:
+		line += " · ушли %d" % int(st["lost"])
+	var info := UI.label(line, 26, UI.SUB, 600)
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	col.add_child(info)
+	if st["idle"] > 0:
+		var why: String = st["why"]
+		var hint := ""
+		if why.begins_with("Склад"):
+			hint = " — найми управляющего, он закупает сам"
+		var idle := UI.label("простой %d из %d дн.: %s%s" % [st["idle"], days, why.get_slice(" — ", 0).to_lower(), hint], 24, Color("#ffb347"), 600)
+		idle.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		idle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		idle.custom_minimum_size.x = 440
+		col.add_child(idle)
+	var p: float = st["profit"]
+	var money := UI.label(("+" if p >= 0.0 else "") + Data.money(p), 32, GREEN if p >= 0.0 else RED, 900)
+	money.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	h.add_child(money)
+	return card
 
 
 # --- Contracts --------------------------------------------------------------------

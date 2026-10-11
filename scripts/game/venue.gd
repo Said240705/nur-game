@@ -125,10 +125,13 @@ static func day(v: Dictionary, boost: float) -> Dictionary:
 		v["stock"] = maxf(0.0, v["stock"] - served)
 	var open := why == "" or why.begins_with("Склад")
 	var load := served / maxf(capacity(v), 1.0)
-	var power: float = Data.power(b) * (0.8 + 0.2 * v["reno"]) * (1.0 if open else 0.3)
+	var power: float = Data.power(b) * (0.8 + 0.2 * v["reno"]) * (1.0 if open and v.get("idle", 0) <= 3 else 0.3)
 	var water: float = Data.water(b) * (0.3 + 0.7 * clampf(load, 0.0, 1.0))
 	var ads := ads_cost(v) if v["closed"] <= 0 else 0.0
-	var costs := salaries(v) + rent(v) + power + water + ads
+	# Staff of a place that has stood idle for days go on unpaid leave.
+	v["idle"] = v.get("idle", 0) + 1 if why != "" and not why.begins_with("Ремонт") else 0
+	var wages := salaries(v) if v["idle"] <= 3 else 0.0
+	var costs := wages + rent(v) + power + water + ads
 	var lost := maxf(0.0, want - served) if why == "" or why.begins_with("Склад") else 0.0
 	# The rating drifts toward what the place deserves.
 	if v["closed"] <= 0 and capacity(v) > 0.0:
@@ -141,7 +144,7 @@ static func day(v: Dictionary, boost: float) -> Dictionary:
 	if v["closed"] > 0:
 		v["closed"] -= 1
 	v["expect"] = lerpf(v["expect"], minf(want, maxf(capacity(v), 1.0)), 0.5) if v["expect"] > 0.0 else minf(want, maxf(capacity(v), 1.0))
-	var report := {"revenue": revenue, "goods": goods, "salaries": salaries(v), "rent": rent(v), "power": power,
+	var report := {"revenue": revenue, "goods": goods, "salaries": wages, "rent": rent(v), "power": power,
 		"water": water, "ads": ads, "served": served, "want": want, "lost": lost, "why": why,
 		"cash": revenue - costs, "profit": revenue - goods - costs}
 	v["report"] = report

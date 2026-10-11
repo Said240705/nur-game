@@ -121,7 +121,7 @@ static func glyph(c: CanvasItem, id: String, m: Vector2, s: float) -> void:
 			c.draw_circle(m, 40 * s, W)
 			c.draw_arc(m, 30 * s, 0, TAU, 32, Color(0, 0, 0, 0.18), 5 * s, true)
 			var f := ThemeDB.fallback_font
-			var t := "$"
+			var t := "₽"
 			var size := int(48 * s)
 			var ts := f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, size)
 			c.draw_string(f, m + Vector2(-ts.x * 0.5, size * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.45))

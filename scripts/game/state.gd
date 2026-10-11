@@ -21,6 +21,10 @@ var boosts: Array = []
 var debt_days := 0
 ## How rested the hero is (0…100); a shift at work takes some.
 var energy := 100.0
+## During a shift the hero works instead of resting; the shift's energy is
+## spent bit by bit while it lasts.
+var on_shift := false
+var shift_cost := 0.0
 var best_worth := 0.0
 var bankrupt := false
 var _next_id := 1
@@ -101,10 +105,20 @@ func can_work() -> bool:
 
 
 func start_shift() -> bool:
-	if not can_work():
+	if not can_work() or on_shift:
 		return false
-	energy -= shift_energy()
+	on_shift = true
+	shift_cost = shift_energy()
 	return true
+
+
+## Spends the share of the shift's energy for `seconds` of work.
+func tire(seconds: float) -> void:
+	energy = maxf(0.0, energy - shift_cost * seconds / Data.SHIFT_TIME)
+
+
+func end_shift() -> void:
+	on_shift = false
 
 
 ## Buys a vehicle; the old one of the same class is sold for half its price.
@@ -156,7 +170,8 @@ func next_day() -> float:
 	cash -= upkeep()
 	profit -= upkeep()
 	day += 1
-	energy = minf(100.0, energy + rest())
+	if not on_shift:
+		energy = minf(100.0, energy + rest())
 	# Vehicles in worse shape break down more often.
 	for cls in garage:
 		var car: Dictionary = garage[cls]

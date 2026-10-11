@@ -24,6 +24,8 @@ func _init() -> void:
 		while minutes < 240.0 and not s.bankrupt:
 			# Works a shift whenever rested: about 1.2 successes a second.
 			if s.start_shift():
+				s.tire(Data.SHIFT_TIME)
+				s.end_shift()
 				s.cash += Data.RANKS[s.rank()]["pay"] * Data.SHIFT_TIME * 1.2
 			s.next_day()
 			minutes += Data.DAY / 60.0

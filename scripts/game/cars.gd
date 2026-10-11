@@ -68,12 +68,12 @@ static func make(cls: String, risky: bool) -> Dictionary:
 			pool.append("stolen")
 		issue = pool[randi() % pool.size()]
 	return {"cls": cls, "model": c["models"][randi() % c["models"].size()], "year": year, "km": km, "hp": hp,
-		"owners": owners, "condition": condition, "price": roundf(price / 10.0) * 10.0, "issue": issue,
-		"fines": roundf(price * randf_range(0.1, 0.3)), "checked_legal": false, "checked_tech": false, "broken": 0}
+		"owners": owners, "condition": condition, "price": roundf(price / 1000.0) * 1000.0, "issue": issue,
+		"fines": roundf(price * randf_range(0.1, 0.3) / 100.0) * 100.0, "checked_legal": false, "checked_tech": false, "broken": 0}
 
 
 static func check_cost(car: Dictionary, legal: bool) -> float:
-	return roundf(maxf(30.0 if legal else 60.0, car["price"] * (0.01 if legal else 0.02)))
+	return roundf(maxf(3000.0 if legal else 6000.0, car["price"] * (0.01 if legal else 0.02)) / 100.0) * 100.0
 
 
 ## What a check found, or "" if it found nothing of its kind.

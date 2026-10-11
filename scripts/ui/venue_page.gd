@@ -176,7 +176,10 @@ func _build_report(box: VBoxContainer) -> void:
 	_line(c, "Выручка", "+" + Data.money(r["revenue"]), GREEN)
 	if Venue.uses_stock(v):
 		_line(c, "Товар (себестоимость)", "−" + Data.money(r["goods"]), RED)
-	_line(c, "Зарплаты", "−" + Data.money(r["salaries"]), RED)
+	if r["salaries"] <= 0.0 and Venue.salaries(v) > 0.0:
+		_line(c, "Зарплаты", "персонал в отпуске без содержания", Color("#ffb347"), 30)
+	else:
+		_line(c, "Зарплаты", "−" + Data.money(r["salaries"]), RED)
 	_line(c, "Аренда", "−" + Data.money(r["rent"]), RED)
 	_line(c, "Электричество", "−" + Data.money(r["power"]), RED)
 	_line(c, "Вода", "−" + Data.money(r["water"]), RED)
