@@ -6,6 +6,11 @@ const DAY := 4.0
 const START_CASH := 100.0
 ## Days in debt before the bank takes everything.
 const DEBT_DAYS := 7
+## A work shift: how long it lasts (real seconds) and the energy it takes.
+## Energy (0…100) comes back a little every day; better housing means better rest.
+const SHIFT_TIME := 30.0
+const SHIFT_ENERGY := 35.0
+const REST := 3.0
 const MAX_LEVEL := 10
 
 ## Statuses by net worth; each has its own job (a mini-game in scripts/work/)
@@ -137,11 +142,11 @@ const ADS := [
 ## Homes and rides: they cost upkeep every day, but status (prestige) makes
 ## every business earn more.
 const PROPERTY := [
-	{"id": "room", "kind": "home", "name": "Комната в общаге", "price": 300.0, "upkeep": 5.0, "prestige": 0.03},
-	{"id": "flat", "kind": "home", "name": "Своя квартира", "price": 1.2e4, "upkeep": 60.0, "prestige": 0.06},
-	{"id": "house", "kind": "home", "name": "Дом за городом", "price": 3e5, "upkeep": 900.0, "prestige": 0.1},
-	{"id": "penthouse", "kind": "home", "name": "Пентхаус", "price": 8e6, "upkeep": 2e4, "prestige": 0.18},
-	{"id": "mansion", "kind": "home", "name": "Особняк у моря", "price": 1.5e8, "upkeep": 3e5, "prestige": 0.3},
+	{"id": "room", "kind": "home", "name": "Комната в общаге", "price": 300.0, "upkeep": 5.0, "prestige": 0.03, "rest": 2.0},
+	{"id": "flat", "kind": "home", "name": "Своя квартира", "price": 1.2e4, "upkeep": 60.0, "prestige": 0.06, "rest": 3.0},
+	{"id": "house", "kind": "home", "name": "Дом за городом", "price": 3e5, "upkeep": 900.0, "prestige": 0.1, "rest": 4.0},
+	{"id": "penthouse", "kind": "home", "name": "Пентхаус", "price": 8e6, "upkeep": 2e4, "prestige": 0.18, "rest": 5.0},
+	{"id": "mansion", "kind": "home", "name": "Особняк у моря", "price": 1.5e8, "upkeep": 3e5, "prestige": 0.3, "rest": 7.0},
 	{"id": "bike", "kind": "ride", "name": "Велосипед", "price": 150.0, "upkeep": 0.0, "prestige": 0.02},
 	{"id": "oldcar", "kind": "ride", "name": "Подержанная машина", "price": 5e3, "upkeep": 30.0, "prestige": 0.04},
 	{"id": "car", "kind": "ride", "name": "Новая иномарка", "price": 8e4, "upkeep": 300.0, "prestige": 0.08},

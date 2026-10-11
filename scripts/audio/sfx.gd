@@ -37,6 +37,12 @@ func _ready() -> void:
 	_music.stream = loop
 	_music.volume_db = -80.0
 	add_child(_music)
+	# In the browser, hand every sound to Web Audio up front: played as a
+	# sample it starts at once instead of after the stream buffer fills.
+	if OS.has_feature("web"):
+		for st in _streams.values():
+			AudioServer.register_stream_as_sample(st)
+		AudioServer.register_stream_as_sample(loop)
 
 
 func play(sound: String, volume_db := 0.0, pitch := 1.0) -> void:

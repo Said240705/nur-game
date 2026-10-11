@@ -14,6 +14,8 @@ var owned := {}
 ## [[multiplier, days left], …]: events making customers come more or less.
 var boosts: Array = []
 var debt_days := 0
+## How rested the hero is (0…100); a shift at work takes some.
+var energy := 100.0
 var best_worth := 0.0
 var bankrupt := false
 var _next_id := 1
@@ -53,6 +55,25 @@ func venue_at(plot: int) -> Dictionary:
 	return {}
 
 
+## Energy back per day: a little anyway, more in a better home.
+func rest() -> float:
+	var r := Data.REST
+	for id in owned:
+		r += Data.property(id).get("rest", 0.0)
+	return r
+
+
+func can_work() -> bool:
+	return energy >= Data.SHIFT_ENERGY
+
+
+func start_shift() -> bool:
+	if not can_work():
+		return false
+	energy -= Data.SHIFT_ENERGY
+	return true
+
+
 func upkeep() -> float:
 	var total := 0.0
 	for id in owned:
@@ -84,6 +105,7 @@ func next_day() -> float:
 	cash -= upkeep()
 	profit -= upkeep()
 	day += 1
+	energy = minf(100.0, energy + rest())
 	for b in boosts:
 		b[1] -= 1
 	boosts = boosts.filter(func(b: Array) -> bool: return b[1] > 0)
@@ -199,7 +221,7 @@ func apply(outcome: Dictionary, amount: float, biz: int) -> void:
 
 func to_dict() -> Dictionary:
 	return {"cash": cash, "day": day, "venues": venues, "owned": owned.keys(), "boosts": boosts,
-		"debt_days": debt_days, "best_worth": best_worth, "next_id": _next_id,
+		"debt_days": debt_days, "best_worth": best_worth, "next_id": _next_id, "energy": energy,
 		"saved_at": Time.get_unix_time_from_system()}
 
 
@@ -221,6 +243,7 @@ static func from_dict(d: Dictionary) -> RefCounted:
 		s.owned[id] = true
 	s.boosts = d.get("boosts", [])
 	s.debt_days = d.get("debt_days", 0)
+	s.energy = d.get("energy", 100.0)
 	s.best_worth = d.get("best_worth", 0.0)
 	s._next_id = d.get("next_id", 1)
 	return s

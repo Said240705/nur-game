@@ -21,8 +21,8 @@ config/icon="res://icon.svg"
 
 [audio]
 
-; Sounds are synthesized at runtime, so the browser cannot pre-sample them.
-general/default_playback_type.web=0
+; Browsers play sounds with the least delay as Web Audio samples (registered in sfx.gd).
+general/default_playback_type.web=1
 
 
 [autoload]

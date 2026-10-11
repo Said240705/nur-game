@@ -58,6 +58,16 @@ var _job: Label
 var _pay: Label
 var _tip: Label
 var _venue_page: Control
+## The current job's mini-game, the cover shown between shifts, and the shift
+## clock (seconds left, or 0 when not working).
+var _game: Control
+var _cover: Control
+var _cover_text: Label
+var _cover_btn: Button
+var _energy: Control
+var _shift_left := 0.0
+var _shift_earned := 0.0
+var _shift_done := false
 
 var _day_t := 0.0
 var _event_t := 25.0
@@ -134,6 +144,7 @@ func _process(delta: float) -> void:
 	if _event_t <= 0.0:
 		_show_event()
 	_tick_deal(delta)
+	_tick_shift(delta)
 	_save_t += delta
 	if _save_t >= 2.0:
 		_save()
@@ -389,18 +400,22 @@ func _rebuild_pages() -> void:
 
 func _build_work(page: Control) -> void:
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 14)
+	box.add_theme_constant_override("separation", 12)
 	page.add_child(box)
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	box.offset_left = 30
 	box.offset_right = -30
-	box.offset_top = 30
+	box.offset_top = 24
 	box.offset_bottom = -20
 	var r: Dictionary = Data.RANKS[s.rank()]
-	_job = UI.label(r["job"], 50, Color.WHITE, 800)
+	_job = UI.label(r["job"], 48, Color.WHITE, 800)
 	box.add_child(_job)
-	_pay = UI.label("%s за удачу" % Data.money(r["pay"]), 34, GREEN, 700)
+	_pay = UI.label("", 34, GREEN, 700)
 	box.add_child(_pay)
+	_energy = Control.new()
+	_energy.custom_minimum_size = Vector2(0, 64)
+	_energy.draw.connect(_draw_energy)
+	box.add_child(_energy)
 	var frame := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0, 0, 0, 0)
@@ -410,24 +425,98 @@ func _build_work(page: Control) -> void:
 	frame.add_theme_stylebox_override("panel", sb)
 	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(frame)
-	var game: Control = JOBS[r["game"]].new()
-	game.pay = r["pay"]
+	_game = JOBS[r["game"]].new()
+	_game.pay = r["pay"]
 	if r["game"] == "negotiation":
-		game.title = "Клиент выбирает франшизу" if s.rank() == 3 else "Клиент решает, нанять ли тебя"
-	game.earned.connect(_on_earned)
-	frame.add_child(game)
+		_game.title = "Клиент выбирает франшизу" if s.rank() == 3 else "Клиент решает, нанять ли тебя"
+	_game.earned.connect(_on_earned)
+	frame.add_child(_game)
+	# Between shifts the job is covered: start a shift, or rest first.
+	_cover = Control.new()
+	frame.add_child(_cover)
+	var shade := ColorRect.new()
+	shade.color = Color(0.03, 0.03, 0.07, 0.82)
+	_cover.add_child(shade)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 30)
+	_cover.add_child(col)
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	col.offset_left = 50
+	col.offset_right = -50
+	_cover_text = UI.label("", 42, Color.WHITE, 800)
+	_cover_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(_cover_text)
+	_cover_btn = UI.pill_button("", UI.GOLD, _start_shift)
+	_cover_btn.custom_minimum_size = Vector2(0, 140)
+	_cover_btn.add_theme_font_size_override("font_size", 42)
+	col.add_child(_cover_btn)
 	var tip_card := PanelContainer.new()
 	tip_card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.25)))
 	_tip = UI.label("", 32, Color.WHITE, 600)
 	_tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	tip_card.add_child(_tip)
 	box.add_child(tip_card)
+	# A shift in progress survives the page being rebuilt (new status, purchases).
+	_game.working = _shift_left > 0.0
+	_cover.visible = _shift_left <= 0.0
 	_refreshers.append(_refresh_work)
 	_refresh_work()
 
 
+func _start_shift() -> void:
+	if not s.start_shift():
+		Sfx.play("no", -6.0)
+		return
+	_shift_left = Data.SHIFT_TIME
+	_shift_earned = 0.0
+	_shift_done = false
+	_game.working = true
+	_cover.visible = false
+	_refresh_work()
+
+
+func _tick_shift(delta: float) -> void:
+	if _shift_left <= 0.0 or not _game or not is_instance_valid(_game) or not _game.active():
+		return
+	_shift_left -= delta
+	if _shift_left <= 0.0:
+		_shift_left = 0.0
+		_shift_done = true
+		_game.working = false
+		_cover.visible = true
+		Sfx.play("fanfare", -6.0)
+		_refresh_work()
+	_energy.queue_redraw()
+
+
+func _draw_energy() -> void:
+	var w := _energy.size.x
+	var f := UI.font(700)
+	var k: float = s.energy / 100.0
+	var bar := Rect2(0, 36, w, 20)
+	var back := StyleBoxFlat.new()
+	back.bg_color = Color(1, 1, 1, 0.08)
+	back.set_corner_radius_all(10)
+	_energy.draw_style_box(back, bar)
+	var col := GREEN if s.energy >= Data.SHIFT_ENERGY else Color("#ffb347")
+	if _shift_left > 0.0:
+		# During a shift the bar shows the time left instead.
+		k = _shift_left / Data.SHIFT_TIME
+		col = UI.GOLD
+	if k > 0.0:
+		var fill := StyleBoxFlat.new()
+		fill.bg_color = col
+		fill.set_corner_radius_all(10)
+		_energy.draw_style_box(fill, Rect2(bar.position, Vector2(maxf(20.0, w * k), bar.size.y)))
+	var text := "Смена: ещё %d сек" % ceili(_shift_left) if _shift_left > 0.0 else "Энергия %d / 100  ·  +%d в день от отдыха" % [int(s.energy), int(s.rest())]
+	_energy.draw_string(f, Vector2(0, 26), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color(1, 1, 1, 0.8))
+
+
 func _on_earned(amount: float, at: Vector2, note: String) -> void:
 	s.cash += amount
+	_shift_earned += amount
 	if absf(amount) >= 1.0:
 		_float(("+" if amount > 0.0 else "") + Data.money(amount), at, GREEN if amount > 0.0 else RED, 60)
 		Sfx.play("coin" if amount > 0.0 else "no", -8.0 if amount > 0.0 else -4.0, randf_range(0.95, 1.1))
@@ -440,6 +529,26 @@ func _on_earned(amount: float, at: Vector2, note: String) -> void:
 
 func _refresh_work() -> void:
 	_tip.text = _advice()
+	var pay: float = Data.RANKS[s.rank()]["pay"]
+	if _shift_left > 0.0:
+		_pay.text = "За смену: %s%s" % ["+" if _shift_earned >= 0.0 else "", Data.money(_shift_earned)]
+	else:
+		_pay.text = "%s за удачу · смена %d сек" % [Data.money(pay), int(Data.SHIFT_TIME)]
+	_energy.queue_redraw()
+	if _shift_left > 0.0:
+		return
+	var head := ""
+	if _shift_done:
+		head = "Смена окончена: %s%s\n\n" % ["+" if _shift_earned >= 0.0 else "", Data.money(_shift_earned)]
+	if s.can_work():
+		_cover_text.text = head + "Готов работать?"
+		_cover_btn.text = "Выйти на смену  ·  −%d энергии" % int(Data.SHIFT_ENERGY)
+		_cover_btn.modulate.a = 1.0
+	else:
+		var days := ceilf((Data.SHIFT_ENERGY - s.energy) / s.rest())
+		_cover_text.text = head + "Ты устал. Отдохни — силы вернутся примерно через %d сек.\nА пока займись бизнесом." % int(days * Data.DAY)
+		_cover_btn.text = "Нужно %d энергии" % int(Data.SHIFT_ENERGY)
+		_cover_btn.modulate.a = 0.4
 
 
 ## What to do next, in a sentence.
@@ -447,9 +556,11 @@ func _advice() -> String:
 	if s.cash < 0.0:
 		return "Ты в долгах! Работай, сократи расходы или продай что-нибудь — иначе через несколько дней банкротство."
 	if s.venues.is_empty():
+		if not s.can_work() and s.cash < Data.BUSINESSES[0]["price"] + 80.0:
+			return "Устал — отдохни. Жильё получше восстанавливает силы быстрее (вкладка «Имущество»)."
 		if s.cash >= Data.BUSINESSES[0]["price"] + 80.0:
 			return "Хватает на первый бизнес! Открой вкладку «Город», выбери свободное место «S» и открой ларёк с шаурмой."
-		return "Работай — копи %s на первый бизнес (с запасом на продукты и зарплату)." % Data.money(Data.BUSINESSES[0]["price"] + 80.0)
+		return "Выходи на смены и копи %s на первый бизнес (с запасом на продукты и зарплату)." % Data.money(Data.BUSINESSES[0]["price"] + 80.0)
 	for v in s.venues:
 		var why := Venue.blocker(v)
 		if why != "" and not why.begins_with("Ремонт"):
@@ -680,7 +791,10 @@ func _property_card(p: Dictionary) -> Control:
 	var perks := UI.label("Статус: клиентов +%d%%" % roundi(p["prestige"] * 100.0), 32, GREEN, 700)
 	perks.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	v.add_child(perks)
-	var cost := UI.label("Содержание: %s в день" % Data.money(p["upkeep"]) if p["upkeep"] > 0.0 else "Без расходов", 30, UI.SUB, 600)
+	var cost_text: String = "Содержание: %s в день" % Data.money(p["upkeep"]) if p["upkeep"] > 0.0 else "Без расходов"
+	if p.get("rest", 0.0) > 0.0:
+		cost_text += " · отдых +%d энергии" % int(p["rest"])
+	var cost := UI.label(cost_text, 30, UI.SUB, 600)
 	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	v.add_child(cost)
 	if has:
@@ -960,6 +1074,8 @@ func _show_bankrupt() -> void:
 	box.add_child(UI.spacer(20))
 	_modal_button(box, "Начать заново", UI.GOLD, func() -> void:
 		s = State.new()
+		_shift_left = 0.0
+		_shift_done = false
 		_shown = s.cash
 		_rank_seen = 0
 		_deal = {}

@@ -11,6 +11,8 @@ const GREEN := Color("#3ee08f")
 const RED := Color("#ff5c6c")
 
 var pay := 3.0
+## Only during a shift does the job run and respond to touches.
+var working := false
 var _font: Font
 var _t := 0.0
 
@@ -23,7 +25,7 @@ func _ready() -> void:
 
 
 func active() -> bool:
-	return is_visible_in_tree() and not UI.modal_open
+	return working and is_visible_in_tree() and not UI.modal_open
 
 
 func _process(delta: float) -> void:

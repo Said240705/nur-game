@@ -1,7 +1,7 @@
 extends SceneTree
 ## Plays the economy with a sensible player and prints when each status arrives:
 ##   godot --headless --script res://scripts/dev/sim_pacing.gd
-## The player works (as if tapping the job), opens the most promising business
+## The player works a shift whenever rested, opens the most promising business
 ## on the best free plot, staffs it to meet demand, restocks, renovates and
 ## hires a manager once he can afford one.
 
@@ -22,7 +22,9 @@ func _init() -> void:
 		var line := "run %d:" % run
 		var minutes := 0.0
 		while minutes < 240.0 and not s.bankrupt:
-			s.cash += Data.RANKS[s.rank()]["pay"] * 4.0
+			# Works a shift whenever rested: about 1.2 successes a second.
+			if s.start_shift():
+				s.cash += Data.RANKS[s.rank()]["pay"] * Data.SHIFT_TIME * 1.2
 			s.next_day()
 			minutes += Data.DAY / 60.0
 			_manage(s)
