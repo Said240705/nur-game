@@ -69,6 +69,13 @@ var _energy: Control
 var _shift_left := 0.0
 var _shift_earned := 0.0
 var _shift_done := false
+var _shift_hits := 0
+var _shift_fines := 0
+## Until when (msec) the start button ignores presses after a shift ends,
+## so fast taps on the job cannot start a new shift by accident.
+var _cover_lock := 0
+var _cover_title: Label
+var _cover_amount: Label
 
 var _day_t := 0.0
 var _event_t := 25.0
@@ -436,27 +443,38 @@ func _build_work(page: Control) -> void:
 		_game.title = "Клиент выбирает франшизу" if s.rank() == 3 else "Клиент решает, нанять ли тебя"
 	_game.earned.connect(_on_earned)
 	frame.add_child(_game)
-	# Between shifts the job is covered: start a shift, or rest first.
+	# Between shifts the job is covered by a card: the last shift's result
+	# up top, the start button low down, away from where the job is tapped.
 	_cover = Control.new()
 	frame.add_child(_cover)
 	var shade := ColorRect.new()
-	shade.color = Color(0.03, 0.03, 0.07, 0.82)
+	shade.color = Color(0.03, 0.03, 0.07, 0.86)
 	_cover.add_child(shade)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var col := VBoxContainer.new()
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 30)
+	col.add_theme_constant_override("separation", 10)
 	_cover.add_child(col)
-	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	col.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
 	col.offset_left = 50
 	col.offset_right = -50
-	_cover_text = UI.label("", 42, Color.WHITE, 800)
+	col.offset_top = 70
+	_cover_title = UI.label("", 40, UI.SUB, 800)
+	col.add_child(_cover_title)
+	_cover_amount = UI.label("", 92, GREEN, 900)
+	col.add_child(_cover_amount)
+	_cover_text = UI.label("", 32, Color("#d8dbe8"), 600)
 	_cover_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_cover_text)
-	_cover_btn = UI.pill_button("", UI.GOLD, _start_shift)
-	_cover_btn.custom_minimum_size = Vector2(0, 140)
-	_cover_btn.add_theme_font_size_override("font_size", 42)
-	col.add_child(_cover_btn)
+	_cover_btn = UI.pill_button("", UI.GOLD, func() -> void:
+		if Time.get_ticks_msec() >= _cover_lock:
+			_start_shift())
+	_cover_btn.add_theme_font_size_override("font_size", 38)
+	_cover.add_child(_cover_btn)
+	_cover_btn.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_cover_btn.offset_left = 70
+	_cover_btn.offset_right = -70
+	_cover_btn.offset_top = -170
+	_cover_btn.offset_bottom = -56
 	var tip_card := PanelContainer.new()
 	tip_card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.25)))
 	_tip = UI.label("", 32, Color.WHITE, 600)
@@ -476,6 +494,8 @@ func _start_shift() -> void:
 		return
 	_shift_left = Data.SHIFT_TIME
 	_shift_earned = 0.0
+	_shift_hits = 0
+	_shift_fines = 0
 	_shift_done = false
 	_game.working = true
 	_cover.visible = false
@@ -495,8 +515,13 @@ func _tick_shift(delta: float) -> void:
 		s.end_shift()
 		_game.working = false
 		_cover.visible = true
+		_cover_lock = Time.get_ticks_msec() + 1500
+		_cover_btn.modulate.a = 0.0
 		Sfx.play("fanfare", -6.0)
 		_refresh_work()
+		var tw := _cover_btn.create_tween()
+		tw.tween_interval(1.5)
+		tw.tween_property(_cover_btn, "modulate:a", 1.0, 0.3)
 	_energy.queue_redraw()
 
 
@@ -524,6 +549,10 @@ func _draw_energy() -> void:
 func _on_earned(amount: float, at: Vector2, note: String) -> void:
 	s.cash += amount
 	_shift_earned += amount
+	if amount > 0.0:
+		_shift_hits += 1
+	elif amount < 0.0:
+		_shift_fines += 1
 	if absf(amount) >= 1.0:
 		_float(("+" if amount > 0.0 else "") + Data.money(amount), at, GREEN if amount > 0.0 else RED, 60)
 		Sfx.play("coin" if amount > 0.0 else "no", -8.0 if amount > 0.0 else -4.0, randf_range(0.95, 1.1))
@@ -550,18 +579,30 @@ func _refresh_work() -> void:
 	_energy.queue_redraw()
 	if _shift_left > 0.0:
 		return
-	var head := ""
 	if _shift_done:
-		head = "Смена окончена: %s%s\n\n" % ["+" if _shift_earned >= 0.0 else "", Data.money(_shift_earned)]
+		_cover_title.text = "Смена окончена"
+		_cover_amount.text = ("+" if _shift_earned >= 0.0 else "") + Data.money(_shift_earned)
+		_cover_amount.add_theme_color_override("font_color", GREEN if _shift_earned >= 0.0 else RED)
+		var detail := "Удачных: %d" % _shift_hits
+		if _shift_fines > 0:
+			detail += " · ошибок и штрафов: %d" % _shift_fines
+		_cover_text.text = detail + "\nЭнергия: %d / 100" % int(s.energy)
+	else:
+		_cover_title.text = "Новая смена"
+		_cover_amount.text = "%d сек" % int(Data.SHIFT_TIME)
+		_cover_amount.add_theme_color_override("font_color", Color.WHITE)
+		_cover_text.text = "%s за каждую удачу. Энергия: %d / 100" % [Data.money(pay * s.work_mult(Data.RANKS[s.rank()]["game"])), int(s.energy)]
+	var locked := Time.get_ticks_msec() < _cover_lock
 	if s.can_work():
-		_cover_text.text = head + "Готов работать?"
 		_cover_btn.text = "Выйти на смену  ·  −%d энергии" % int(s.shift_energy())
-		_cover_btn.modulate.a = 1.0
+		if not locked:
+			_cover_btn.modulate.a = 1.0
 	else:
 		var days := ceilf((s.shift_energy() - s.energy) / s.rest())
-		_cover_text.text = head + "Ты устал. Отдохни — силы вернутся примерно через %d сек.\nА пока займись бизнесом." % int(days * Data.DAY)
+		_cover_text.text += "\nТы устал: силы вернутся примерно через %d сек. А пока займись бизнесом." % int(days * Data.DAY)
 		_cover_btn.text = "Нужно %d энергии" % int(s.shift_energy())
-		_cover_btn.modulate.a = 0.4
+		if not locked:
+			_cover_btn.modulate.a = 0.4
 
 
 ## What to do next, in a sentence.
