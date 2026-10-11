@@ -65,6 +65,9 @@ func _table() -> void:
 
 
 func _manage(s: RefCounted) -> void:
+	# Looks after the trouble of the start before it turns into a crisis.
+	if s.mind < 50.0:
+		s.care()
 	for v in s.venues:
 		var b: Dictionary = Venue.kind(v)
 		var serve: Dictionary = b["roles"][0]

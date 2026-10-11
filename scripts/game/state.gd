@@ -5,8 +5,22 @@ extends RefCounted
 const Data := preload("res://scripts/game/data.gd")
 const Venue := preload("res://scripts/game/venue.gd")
 const Cars := preload("res://scripts/game/cars.gd")
+const Origin := preload("res://scripts/game/origin.gd")
 
 var cash := Data.START_CASH
+## Where the hero started (see origin.gd) and the trouble meter of that start.
+var origin := "street"
+var mind := 100.0
+## Story beats already shown: id -> true.
+var story := {}
+## Set by a story beat: the trouble melts half as fast from then on.
+var calm := false
+## What a crisis took when the meter hit zero; -1 when none waits to be shown.
+var crisis := -1.0
+## Short lines for the screen about what happened during a day.
+var news: Array = []
+## True while the days the player was away are played out: no crisis then.
+var away := false
 var day := 1
 ## Businesses the player runs (see venue.gd).
 var venues: Array = []
@@ -32,8 +46,60 @@ var _next_id := 1
 var last_day := {"cash": 0.0, "profit": 0.0}
 
 
+## Money, home and car of a start.
+func setup(id: String) -> void:
+	origin = id
+	var o := Origin.info(id)
+	cash = o["cash"]
+	if o.has("start_home"):
+		owned[o["start_home"]] = true
+	if o.has("start_ride"):
+		var car := Cars.make(o["start_ride"], false)
+		car["issue"] = ""
+		car["condition"] = 5
+		car["year"] = Cars.YEAR - 1
+		car["km"] = 9000
+		garage[o["start_ride"]] = car
+		owned[o["start_ride"]] = true
+
+
 func rank() -> int:
 	return Data.rank_of(worth())
+
+
+func rank_name(r: int) -> String:
+	return Origin.info(origin)["rank0"] if r == 0 else Data.RANKS[r]["name"]
+
+
+func has_home() -> bool:
+	for id in owned:
+		if Data.property(id)["kind"] == "home":
+			return true
+	return false
+
+
+## An oligarch's son can buy anything at once; others wait for the status.
+func unlocked(p: Dictionary) -> bool:
+	return origin == "rich" or rank() >= p["rank"]
+
+
+func care_cost() -> float:
+	return Origin.care_cost(origin, worth())
+
+
+## Pays for care (a shelter, help for the family, a psychologist).
+func care() -> bool:
+	var cost := care_cost()
+	if cash < cost or mind >= 100.0:
+		return false
+	cash -= cost
+	mind = minf(100.0, mind + Origin.info(origin)["care_gain"])
+	return true
+
+
+## The meter needs no paid care: a homeless hero with a home heals by himself.
+func self_healing() -> bool:
+	return origin == "street" and has_home()
 
 
 func prestige() -> float:
@@ -71,6 +137,10 @@ func rest() -> float:
 		r += Data.property(id).get("rest", 0.0)
 	for cls in _working_vehicles():
 		r += Cars.CLASSES[cls]["rest"]
+	if mind >= Origin.LOW:
+		r += Origin.info(origin).get("home_rest", 0.0)
+	else:
+		r *= 0.5
 	return r
 
 
@@ -179,6 +249,7 @@ func next_day() -> float:
 			car["broken"] -= 1
 		elif pending_break == "" and cls != "bike" and randf() < (6 - car["condition"]) * 0.004:
 			pending_break = cls
+	_melt()
 	for b in boosts:
 		b[1] -= 1
 	boosts = boosts.filter(func(b: Array) -> bool: return b[1] > 0)
@@ -191,6 +262,30 @@ func next_day() -> float:
 	best_worth = maxf(best_worth, worth())
 	last_day = {"cash": cash - before, "profit": profit}
 	return cash - before
+
+
+## The trouble of the start grows a little every day.
+func _melt() -> void:
+	var o := Origin.info(origin)
+	if self_healing():
+		mind = minf(100.0, mind + 2.0)
+		return
+	mind -= o["melt"] * (0.5 if calm else 1.0)
+	# Feeling empty, the oligarch's son buys things he does not need.
+	if o.has("impulse") and mind < Origin.LOW and cash > 0.0 and randf() < 0.15:
+		var spent := roundf(maxf(20000.0, cash * 0.03) / 100.0) * 100.0
+		cash -= spent
+		news.append("%s: −%s" % [o["impulse"], Data.money(spent)])
+	if mind > 0.0:
+		return
+	if away:
+		mind = 1.0
+		return
+	var lost: float = maxf(cash, 0.0) * o["crisis_cash"]
+	cash -= lost
+	energy = 0.0
+	mind = 60.0
+	crisis = lost
 
 
 ## A manager orders goods for five days when less than two are left.
@@ -295,6 +390,7 @@ func apply(outcome: Dictionary, amount: float, biz: int) -> void:
 func to_dict() -> Dictionary:
 	return {"cash": cash, "day": day, "venues": venues, "owned": owned.keys(), "boosts": boosts,
 		"debt_days": debt_days, "best_worth": best_worth, "next_id": _next_id, "energy": energy, "garage": garage,
+		"origin": origin, "mind": mind, "story": story.keys(), "calm": calm,
 		"saved_at": Time.get_unix_time_from_system()}
 
 
@@ -322,4 +418,10 @@ static func from_dict(d: Dictionary) -> RefCounted:
 		s.owned[cls] = true
 	s.best_worth = d.get("best_worth", 0.0)
 	s._next_id = d.get("next_id", 1)
+	# Lives started before the choice of start began on the street.
+	s.origin = d.get("origin", "street")
+	s.mind = d.get("mind", 100.0)
+	for id in d.get("story", ["s_start"]):
+		s.story[id] = true
+	s.calm = d.get("calm", false)
 	return s

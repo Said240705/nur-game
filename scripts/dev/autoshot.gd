@@ -151,6 +151,41 @@ func _ready() -> void:
 			_main._deal_t = 0.0
 			await _wait(1.2)
 			await _shot("deal")
+		"origin":
+			_main._show_origins(false)
+			await _wait(1.0)
+			await _shot("origin_choose")
+			_main._pick_origin("rich")
+			await _wait(1.2)
+			await _shot("origin_intro")
+			_main._new_life("rich")
+			_main._close_modal()
+			_main._rank_seen = 99
+			_main._event_t = 9999.0
+			_main._deal_t = 9999.0
+			s = _main.s
+			s.mind = 30.0
+			_main._rebuild_pages()
+			await _wait(1.0)
+			await _shot("origin_work")
+			_main._story_t = 0.0
+			await _wait(1.2)
+			await _shot("origin_beat")
+			_main._close_modal()
+			s.story["r_low"] = true
+			s.mind = 0.5
+			s.next_day()
+			await _wait(1.2)
+			await _shot("origin_crisis")
+			_main._close_modal()
+			_main._show_tab("prop")
+			await _wait(0.8)
+			await _shot("origin_props")
+			_main._new_life("family")
+			s = _main.s
+			s.story["f_kitchen"] = true
+			await _wait(1.0)
+			await _shot("origin_family")
 		"contract":
 			s.cash = 5000.0
 			var c := Contract.make("wash", 3000.0, true, 5)
