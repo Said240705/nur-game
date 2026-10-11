@@ -15,6 +15,7 @@ const Contract := preload("res://scripts/game/contract.gd")
 const Venue := preload("res://scripts/game/venue.gd")
 const MapView := preload("res://scripts/ui/map_view.gd")
 const VenuePage := preload("res://scripts/ui/venue_page.gd")
+const Cars := preload("res://scripts/game/cars.gd")
 ## One mini-game per job; the status decides which.
 const JOBS := {
 	"flyers": preload("res://scripts/work/flyers.gd"),
@@ -140,6 +141,8 @@ func _process(delta: float) -> void:
 			_show_bankrupt()
 			return
 		_check_rank()
+		if s.pending_break != "" and not _modal:
+			_show_breakdown()
 	_event_t -= delta
 	if _event_t <= 0.0:
 		_show_event()
@@ -426,7 +429,7 @@ func _build_work(page: Control) -> void:
 	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_child(frame)
 	_game = JOBS[r["game"]].new()
-	_game.pay = r["pay"]
+	_game.pay = r["pay"] * s.work_mult(r["game"])
 	if r["game"] == "negotiation":
 		_game.title = "Клиент выбирает франшизу" if s.rank() == 3 else "Клиент решает, нанять ли тебя"
 	_game.earned.connect(_on_earned)
@@ -500,7 +503,7 @@ func _draw_energy() -> void:
 	back.bg_color = Color(1, 1, 1, 0.08)
 	back.set_corner_radius_all(10)
 	_energy.draw_style_box(back, bar)
-	var col := GREEN if s.energy >= Data.SHIFT_ENERGY else Color("#ffb347")
+	var col := GREEN if s.can_work() else Color("#ffb347")
 	if _shift_left > 0.0:
 		# During a shift the bar shows the time left instead.
 		k = _shift_left / Data.SHIFT_TIME
@@ -533,7 +536,13 @@ func _refresh_work() -> void:
 	if _shift_left > 0.0:
 		_pay.text = "За смену: %s%s" % ["+" if _shift_earned >= 0.0 else "", Data.money(_shift_earned)]
 	else:
-		_pay.text = "%s за удачу · смена %d сек" % [Data.money(pay), int(Data.SHIFT_TIME)]
+		var game: String = Data.RANKS[s.rank()]["game"]
+		var mult: float = s.work_mult(game)
+		_pay.text = "%s за удачу · смена %d сек" % [Data.money(pay * mult), int(Data.SHIFT_TIME)]
+		if game == "taxi" and not s.has_car():
+			_pay.text += " · аренда машины −30%"
+		elif mult > 1.0:
+			_pay.text += " · транспорт +%d%%" % roundi((mult - 1.0) * 100.0)
 	_energy.queue_redraw()
 	if _shift_left > 0.0:
 		return
@@ -542,12 +551,12 @@ func _refresh_work() -> void:
 		head = "Смена окончена: %s%s\n\n" % ["+" if _shift_earned >= 0.0 else "", Data.money(_shift_earned)]
 	if s.can_work():
 		_cover_text.text = head + "Готов работать?"
-		_cover_btn.text = "Выйти на смену  ·  −%d энергии" % int(Data.SHIFT_ENERGY)
+		_cover_btn.text = "Выйти на смену  ·  −%d энергии" % int(s.shift_energy())
 		_cover_btn.modulate.a = 1.0
 	else:
-		var days := ceilf((Data.SHIFT_ENERGY - s.energy) / s.rest())
+		var days := ceilf((s.shift_energy() - s.energy) / s.rest())
 		_cover_text.text = head + "Ты устал. Отдохни — силы вернутся примерно через %d сек.\nА пока займись бизнесом." % int(days * Data.DAY)
-		_cover_btn.text = "Нужно %d энергии" % int(Data.SHIFT_ENERGY)
+		_cover_btn.text = "Нужно %d энергии" % int(s.shift_energy())
 		_cover_btn.modulate.a = 0.4
 
 
@@ -613,8 +622,202 @@ func _build_props(page: Control) -> void:
 		box.add_child(pad)
 		for p in Data.PROPERTY:
 			if p["kind"] == kind[0]:
-				box.add_child(_property_card(p))
+				box.add_child(_property_card(p) if kind[0] == "home" else _garage_card(p))
 	box.add_child(UI.spacer(40))
+
+
+## A vehicle class: the one you own (with its state) or a way to the market.
+func _garage_card(p: Dictionary) -> Control:
+	var cls: String = p["id"]
+	var car: Dictionary = s.garage.get(cls, {})
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _card_box(Color(0.96, 0.77, 0.32, 0.5) if not car.is_empty() else Color(1, 1, 1, 0.06)))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 26)
+	card.add_child(h)
+	h.add_child(_icon(cls, Color("#c8921d") if not car.is_empty() else Color("#3a3f5c")))
+	var v := VBoxContainer.new()
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(v)
+	var title := UI.label(p["name"] if car.is_empty() else "%s, %d" % [car["model"], car["year"]], 38, Color.WHITE, 800)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	v.add_child(title)
+	if not car.is_empty():
+		var stars := Control.new()
+		stars.custom_minimum_size = Vector2(240, 34)
+		stars.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stars.draw.connect(func() -> void: Icons.stars(stars, Vector2(0, 17), car["condition"], 5, 14))
+		v.add_child(stars)
+	var state_text := Cars.perks(cls)
+	if not car.is_empty() and car["broken"] > 0:
+		state_text = "Сломана: ещё %d дн. без бонусов" % car["broken"]
+	var perks := UI.label(state_text, 28, GREEN if car.is_empty() or car["broken"] <= 0 else RED, 600)
+	perks.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	perks.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	perks.custom_minimum_size.x = 400
+	v.add_child(perks)
+	var btn := UI.pill_button("Сменить" if not car.is_empty() else "от " + Data.money(p["price"] * 0.65), UI.GOLD, func() -> void: _show_market(cls))
+	btn.custom_minimum_size = Vector2(210, 100)
+	btn.add_theme_font_size_override("font_size", 32)
+	h.add_child(btn)
+	return _row(card)
+
+
+# --- Vehicle market ----------------------------------------------------------------
+
+func _show_market(cls: String) -> void:
+	var box := _open_modal()
+	_modal_text(box, "АВТОРЫНОК" if cls in ["bike", "oldcar", "car", "sportcar"] else "ПРЕДЛОЖЕНИЯ", 32, UI.GOLD, 800)
+	_modal_text(box, Data.property(cls)["name"], 52, Color.WHITE, 900)
+	_modal_text(box, Cars.perks(cls), 30, GREEN, 600)
+	for car in Cars.offers(cls):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 18)
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var t := UI.label("%s, %d" % [car["model"], car["year"]], 36, Color.WHITE, 800)
+		t.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		col.add_child(t)
+		var km := "пробег %s км · " % _thousands(car["km"]) if Cars.CLASSES[cls]["km_year"] > 0.0 else ""
+		var d := UI.label(km + Data.money(car["price"]), 30, UI.SUB, 600)
+		d.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		col.add_child(d)
+		row.add_child(col)
+		var go := UI.pill_button("Смотреть", UI.GOLD, func() -> void: _show_car(car))
+		go.custom_minimum_size = Vector2(220, 96)
+		go.add_theme_font_size_override("font_size", 34)
+		row.add_child(go)
+		box.add_child(row)
+	box.add_child(UI.spacer(10))
+	_modal_button(box, "Закрыть", Color("#8f96b8"), _close_modal)
+
+
+## The offer window: everything the seller tells you, two checks for what
+## he does not, and the purchase.
+func _show_car(car: Dictionary) -> void:
+	if _modal:
+		_modal.queue_free()
+		_modal = null
+	var cls: String = car["cls"]
+	var c: Dictionary = Cars.CLASSES[cls]
+	var box := _open_modal()
+	_modal_text(box, Data.property(cls)["name"].to_upper(), 30, UI.GOLD, 800)
+	_modal_text(box, "%s, %d год" % [car["model"], car["year"]], 52, Color.WHITE, 900)
+	var stats := VBoxContainer.new()
+	stats.add_theme_constant_override("separation", 6)
+	box.add_child(stats)
+	if c["km_year"] > 0.0:
+		_stat(stats, "Пробег", "%s км" % _thousands(car["km"]))
+	if c["hp"][1] > 0:
+		_stat(stats, "Мощность", "%d л. с." % car["hp"])
+	_stat(stats, "Владельцев", str(car["owners"]))
+	_stat(stats, "Состояние", ["", "плохое", "так себе", "среднее", "хорошее", "отличное"][car["condition"]])
+	var upkeep: float = Data.property(cls)["upkeep"]
+	_stat(stats, "Содержание", Data.money(upkeep) + " в день" if upkeep > 0.0 else "бесплатно")
+	_stat(stats, "Цена", Data.money(car["price"]))
+	_modal_text(box, "Что даёт: " + Cars.perks(cls), 30, GREEN, 600)
+	var found := ""
+	if car["checked_legal"]:
+		var f := Cars.finding(car, true)
+		found += (f if f != "" else "Проверка по базе: чисто.") + "\n"
+	if car["checked_tech"]:
+		var f := Cars.finding(car, false)
+		found += (f if f != "" else "Диагностика: всё в порядке.")
+	if found != "":
+		var bad: bool = (car["checked_legal"] and Cars.finding(car, true) != "") or (car["checked_tech"] and Cars.finding(car, false) != "")
+		_modal_text(box, found.strip_edges(), 32, RED if bad else GREEN, 700)
+	if c["legal"] and not car["checked_legal"]:
+		_modal_button(box, "Проверить по базе · " + Data.money(Cars.check_cost(car, true)), Color("#8f96b8"), _check_car.bind(car, true))
+	if c["legal"] and not car["checked_tech"]:
+		_modal_button(box, "Диагностика в автосервисе · " + Data.money(Cars.check_cost(car, false)), Color("#8f96b8"), _check_car.bind(car, false))
+	var tech_found: bool = car["checked_tech"] and Cars.finding(car, false) != ""
+	if tech_found:
+		_modal_button(box, "Сторговаться: " + Data.money(car["price"] * 0.7), UI.GOLD, _buy_car.bind(car, car["price"] * 0.7))
+	else:
+		_modal_button(box, "Купить · " + Data.money(car["price"]), UI.GOLD, _buy_car.bind(car, car["price"]))
+	box.add_child(UI.flat_button("Отказаться", 38, UI.SUB, _close_modal))
+
+
+func _stat(box: VBoxContainer, name: String, value: String) -> void:
+	var h := HBoxContainer.new()
+	var a := UI.label(name, 34, UI.SUB, 600)
+	a.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	a.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var b := UI.label(value, 34, Color.WHITE, 800)
+	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	h.add_child(a)
+	h.add_child(b)
+	box.add_child(h)
+
+
+func _check_car(car: Dictionary, legal: bool) -> void:
+	var cost := Cars.check_cost(car, legal)
+	if s.cash < cost:
+		Sfx.play("no", -6.0)
+		return
+	s.cash -= cost
+	car["checked_legal" if legal else "checked_tech"] = true
+	Sfx.play("click")
+	_show_car(car)
+
+
+func _buy_car(car: Dictionary, price: float) -> void:
+	if not s.buy_vehicle(car, price):
+		Sfx.play("no", -6.0)
+		_float("Не хватает денег", Vector2(540, HEADER_H + 230), RED, 46)
+		return
+	var hit := Cars.surprise(car, s)
+	_modal.queue_free()
+	_modal = null
+	if hit.is_empty():
+		Sfx.play("fanfare", -2.0)
+		_close_modal()
+		_float("Теперь у тебя %s!" % car["model"], Vector2(540, HEADER_H + 230), UI.GOLD, 48)
+		_check_rank()
+		return
+	if hit["lost"]:
+		s.lose_vehicle(car["cls"])
+	var box := _open_modal()
+	_modal_text(box, "Надо было проверить!", 56, RED, 900)
+	_modal_text(box, hit["text"], 40, Color.WHITE, 700)
+	_modal_button(box, "Понятно", UI.GOLD, func() -> void:
+		_close_modal()
+		_check_rank())
+	Sfx.play("no", -2.0)
+
+
+## A vehicle broke down: pay for repairs, or go without it for a while.
+func _show_breakdown() -> void:
+	var cls: String = s.pending_break
+	s.pending_break = ""
+	var car: Dictionary = s.garage.get(cls, {})
+	if car.is_empty():
+		return
+	var cost := roundf(car["price"] * (0.04 + 0.03 * (5 - car["condition"])))
+	var box := _open_modal()
+	_modal_text(box, "ПОЛОМКА", 32, RED, 800)
+	_modal_text(box, "%s сломалась" % car["model"], 56, Color.WHITE, 900)
+	_modal_text(box, "Ремонт стоит %s. Если не чинить — 10 дней без её бонусов." % Data.money(cost), 38, Color("#d8dbe8"), 500)
+	_modal_button(box, "Починить · " + Data.money(cost), UI.GOLD, func() -> void:
+		if s.cash >= cost:
+			s.cash -= cost
+			Sfx.play("up")
+		else:
+			car["broken"] = 10
+			Sfx.play("no", -4.0)
+		_close_modal())
+	_modal_button(box, "Пусть стоит", Color("#8f96b8"), func() -> void:
+		car["broken"] = 10
+		_close_modal())
+
+
+func _thousands(n: float) -> String:
+	var t := str(int(n))
+	var out := ""
+	while t.length() > 3:
+		out = " " + t.right(3) + out
+		t = t.left(t.length() - 3)
+	return t + out
 
 
 # --- The city and your businesses ---------------------------------------------------
@@ -796,19 +999,15 @@ func _property_card(p: Dictionary) -> Control:
 		cost_text += " · отдых +%d энергии" % int(p["rest"])
 	var cost := UI.label(cost_text, 30, UI.SUB, 600)
 	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	cost.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cost.custom_minimum_size.x = 400
 	v.add_child(cost)
 	if has:
 		var mine := UI.label("Твоё", 40, UI.GOLD, 900)
 		mine.custom_minimum_size = Vector2(250, 0)
 		h.add_child(mine)
 	else:
-		var btn := UI.pill_button("Купить\n" + Data.money(p["price"]), UI.GOLD, func() -> void:
-			if s.buy_property(id):
-				Sfx.play("fanfare", -4.0)
-				_rebuild_pages()
-				_check_rank()
-			else:
-				Sfx.play("no", -6.0))
+		var btn := UI.pill_button("Смотреть\n" + Data.money(p["price"]), UI.GOLD, func() -> void: _show_home(p, p["price"]))
 		btn.custom_minimum_size = Vector2(250, 110)
 		btn.add_theme_font_size_override("font_size", 34)
 		h.add_child(btn)
@@ -917,17 +1116,38 @@ func _take_deal() -> void:
 			Sfx.play("no", -6.0)
 			_float("Не хватает денег", Vector2(540, HEADER_H + 230), RED, 46)
 		return
-	var ok: bool = s.buy_property(_deal["item"]["id"], _deal["price"])
-	if ok:
-		Sfx.play("fanfare", -2.0)
-		_float("Куплено со скидкой!", Vector2(540, HEADER_H + 230), UI.GOLD, 54)
-		_deal = {}
-		_deal_box.visible = false
-		_rebuild_pages()
-		_check_rank()
+	var item: Dictionary = _deal["item"]
+	var price: float = _deal["price"]
+	_deal = {}
+	_deal_box.visible = false
+	if item["kind"] == "ride":
+		# A cheap vehicle on a timer: look closely, sellers in a hurry hide things.
+		var car := Cars.make(item["id"], true)
+		car["price"] = price
+		_show_car(car)
 	else:
-		Sfx.play("no", -6.0)
-		_float("Не хватает денег", Vector2(540, HEADER_H + 230), RED, 46)
+		_show_home(item, price)
+
+
+func _show_home(p: Dictionary, price: float) -> void:
+	var box := _open_modal()
+	_modal_text(box, "ЖИЛЬЁ", 32, UI.GOLD, 800)
+	_modal_text(box, p["name"], 54, Color.WHITE, 900)
+	var stats := VBoxContainer.new()
+	box.add_child(stats)
+	_stat(stats, "Цена", Data.money(price))
+	_stat(stats, "Содержание", Data.money(p["upkeep"]) + " в день")
+	_stat(stats, "Отдых", "+%d энергии в день" % int(p.get("rest", 0.0)))
+	_stat(stats, "Статус", "клиентов +%d%%" % roundi(p["prestige"] * 100.0))
+	_modal_button(box, "Купить · " + Data.money(price), UI.GOLD, func() -> void:
+		if s.buy_property(p["id"], price):
+			Sfx.play("fanfare", -2.0)
+			_close_modal()
+			_check_rank()
+		else:
+			Sfx.play("no", -6.0)
+			_float("Не хватает денег", Vector2(540, HEADER_H + 230), RED, 46))
+	box.add_child(UI.flat_button("Отказаться", 38, UI.SUB, _close_modal))
 
 
 # --- Modal cards ----------------------------------------------------------------

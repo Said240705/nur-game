@@ -4,13 +4,18 @@ extends RefCounted
 
 const Data := preload("res://scripts/game/data.gd")
 const Venue := preload("res://scripts/game/venue.gd")
+const Cars := preload("res://scripts/game/cars.gd")
 
 var cash := Data.START_CASH
 var day := 1
 ## Businesses the player runs (see venue.gd).
 var venues: Array = []
-## Property id -> true.
+## Property id -> true (homes and vehicles alike).
 var owned := {}
+## Vehicles: class id -> the car bought (see cars.gd), with its condition.
+var garage := {}
+## A vehicle that broke down today and waits for a decision ("" if none).
+var pending_break := ""
 ## [[multiplier, days left], …]: events making customers come more or less.
 var boosts: Array = []
 var debt_days := 0
@@ -55,23 +60,69 @@ func venue_at(plot: int) -> Dictionary:
 	return {}
 
 
-## Energy back per day: a little anyway, more in a better home.
+## Energy back per day: a little anyway, more in a better home or on a yacht.
 func rest() -> float:
 	var r := Data.REST
 	for id in owned:
 		r += Data.property(id).get("rest", 0.0)
+	for cls in _working_vehicles():
+		r += Cars.CLASSES[cls]["rest"]
 	return r
 
 
+func _working_vehicles() -> Array:
+	return garage.keys().filter(func(cls: String) -> bool: return garage[cls]["broken"] <= 0)
+
+
+## Energy a shift takes: own transport makes getting to work less tiring.
+func shift_energy() -> float:
+	var e := Data.SHIFT_ENERGY
+	for cls in _working_vehicles():
+		e -= Cars.CLASSES[cls]["save"]
+	return maxf(15.0, e)
+
+
+func has_car() -> bool:
+	return _working_vehicles().any(func(cls: String) -> bool: return cls in ["oldcar", "car", "sportcar"])
+
+
+## Shift pay multiplier from vehicles; a taxi driver without a car rents one.
+func work_mult(game: String) -> float:
+	var m := 1.0
+	for cls in _working_vehicles():
+		m += Cars.CLASSES[cls]["pay"]
+	if game == "taxi" and not has_car():
+		m *= 0.7
+	return m
+
+
 func can_work() -> bool:
-	return energy >= Data.SHIFT_ENERGY
+	return energy >= shift_energy()
 
 
 func start_shift() -> bool:
 	if not can_work():
 		return false
-	energy -= Data.SHIFT_ENERGY
+	energy -= shift_energy()
 	return true
+
+
+## Buys a vehicle; the old one of the same class is sold for half its price.
+func buy_vehicle(car: Dictionary, price: float) -> bool:
+	if cash < price:
+		return false
+	cash -= price
+	var cls: String = car["cls"]
+	if garage.has(cls):
+		cash += garage[cls]["price"] * 0.5
+	garage[cls] = car
+	owned[cls] = true
+	return true
+
+
+func lose_vehicle(cls: String) -> void:
+	garage.erase(cls)
+	owned.erase(cls)
 
 
 func upkeep() -> float:
@@ -106,6 +157,13 @@ func next_day() -> float:
 	profit -= upkeep()
 	day += 1
 	energy = minf(100.0, energy + rest())
+	# Vehicles in worse shape break down more often.
+	for cls in garage:
+		var car: Dictionary = garage[cls]
+		if car["broken"] > 0:
+			car["broken"] -= 1
+		elif pending_break == "" and cls != "bike" and randf() < (6 - car["condition"]) * 0.004:
+			pending_break = cls
 	for b in boosts:
 		b[1] -= 1
 	boosts = boosts.filter(func(b: Array) -> bool: return b[1] > 0)
@@ -221,7 +279,7 @@ func apply(outcome: Dictionary, amount: float, biz: int) -> void:
 
 func to_dict() -> Dictionary:
 	return {"cash": cash, "day": day, "venues": venues, "owned": owned.keys(), "boosts": boosts,
-		"debt_days": debt_days, "best_worth": best_worth, "next_id": _next_id, "energy": energy,
+		"debt_days": debt_days, "best_worth": best_worth, "next_id": _next_id, "energy": energy, "garage": garage,
 		"saved_at": Time.get_unix_time_from_system()}
 
 
@@ -244,6 +302,9 @@ static func from_dict(d: Dictionary) -> RefCounted:
 	s.boosts = d.get("boosts", [])
 	s.debt_days = d.get("debt_days", 0)
 	s.energy = d.get("energy", 100.0)
+	s.garage = d.get("garage", {})
+	for cls in s.garage:
+		s.owned[cls] = true
 	s.best_worth = d.get("best_worth", 0.0)
 	s._next_id = d.get("next_id", 1)
 	return s

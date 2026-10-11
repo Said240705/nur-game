@@ -1,9 +1,10 @@
 extends Node
 ## Developer tool: plays a little by itself and saves screenshots.
-##   godot --path . -- --shots=DIR --mode=city|work|contract
+##   godot --path . -- --shots=DIR --mode=city|work|cars|contract
 ## Starts from a fresh life and never touches the real save.
 
 const Contract := preload("res://scripts/game/contract.gd")
+const Cars := preload("res://scripts/game/cars.gd")
 
 var _main: Node
 var _dir := "user://shots"
@@ -77,6 +78,41 @@ func _ready() -> void:
 			_main._refresh_work()
 			await _wait(0.4)
 			await _shot("work_tired")
+		"cars":
+			s.cash = 20000.0
+			_main._show_tab("prop")
+			await _wait(1.0)
+			_main._venue_page = null
+			var scroll: ScrollContainer = _main._pages["prop"].get_child(0)
+			scroll.scroll_vertical = 1200
+			await _wait(0.6)
+			await _shot("garage")
+			_main._show_market("car")
+			await _wait(0.8)
+			await _shot("market")
+			var car: Dictionary = Cars.make("car", false)
+			car["issue"] = "mileage"
+			_main._show_car(car)
+			await _wait(0.9)
+			await _shot("car")
+			_main._check_car(car, false)
+			await _wait(0.9)
+			await _shot("car_checked")
+			var bad: Dictionary = Cars.make("oldcar", false)
+			bad["issue"] = "pledge"
+			_main._show_car(bad)
+			await _wait(0.8)
+			_main._buy_car(bad, bad["price"])
+			await _wait(0.9)
+			await _shot("car_pledge")
+			_main._close_modal()
+			var good: Dictionary = Cars.make("oldcar", false)
+			good["issue"] = ""
+			s.buy_vehicle(good, 100.0)
+			s.pending_break = "oldcar"
+			_main._show_breakdown()
+			await _wait(0.9)
+			await _shot("breakdown")
 		"contract":
 			s.cash = 5000.0
 			var c := Contract.make("wash", 3000.0, true, 5)
