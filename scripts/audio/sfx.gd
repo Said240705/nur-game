@@ -18,6 +18,7 @@ var _streams := {}
 var _players: Array[AudioStreamPlayer] = []
 var _music: AudioStreamPlayer
 var _song := 0
+var _fade: Tween
 ## Seconds left of the song playing; the next one starts when it runs out.
 var _song_left := 0.0
 
@@ -65,18 +66,21 @@ func play(sound: String, volume_db := 0.0, pitch := 1.0) -> void:
 			return
 
 
-## Starts or stops the background loop with a gentle fade.
+## Fades the music in or out. Turned off, it keeps playing silently: in the
+## browser a stopped sample may still report itself as playing and then never
+## start again, so it is never stopped.
 func set_music(on: bool) -> void:
 	music_on = on
-	var tw := create_tween()
+	if _fade:
+		_fade.kill()
+	_fade = create_tween()
 	if on:
 		if not _music.playing:
 			_music.play()
 			_song_left = _music.stream.get_length()
-		tw.tween_property(_music, "volume_db", MUSIC_DB, 2.5).set_trans(Tween.TRANS_SINE)
+		_fade.tween_property(_music, "volume_db", MUSIC_DB, 1.5).set_trans(Tween.TRANS_SINE)
 	else:
-		tw.tween_property(_music, "volume_db", -80.0, 0.8)
-		tw.tween_callback(_music.stop)
+		_fade.tween_property(_music, "volume_db", -80.0, 0.6)
 
 
 ## Browsers allow sound only after the first touch: the music starts then.
@@ -89,7 +93,7 @@ func _input(event: InputEvent) -> void:
 
 ## Songs have their own fade in and out, so the next simply follows.
 func _process(delta: float) -> void:
-	if not music_on or not _music.playing:
+	if not _music.playing:
 		return
 	_song_left -= delta
 	if _song_left <= 0.0:
